@@ -45,11 +45,22 @@
         DISABLE_PIT_NOINT();                                    \
     }
 
-#define BLOCK() BUSY_WAIT(I2C0_S & I2C_S_IICIF); assert(!(I2C0_S & I2C_S_ARBL)); I2C0_S |= I2C_S_IICIF
+#define BLOCK()                                 \
+    {                                           \
+        BUSY_WAIT(I2C0_S & I2C_S_IICIF);        \
+                                                \
+        if(I2C0_S & I2C_S_ARBL) {               \
+            STOP();                             \
+            return -1;                          \
+        }                                       \
+                                                \
+        I2C0_S |= I2C_S_IICIF;                  \
+    }
+
 #define RECEIVE() I2C0_C1 &= ~I2C_C1_TX
 #define TRANSMIT() I2C0_C1 |= I2C_C1_TX
-#define START() I2C0_C1 |= I2C_C1_MST; while(!(I2C0_S & I2C_S_BUSY))
-#define STOP() I2C0_C1 &= ~I2C_C1_MST; while(I2C0_S & I2C_S_BUSY) /* toggle_led() */
+#define START() assert(!(I2C0_S & I2C_S_BUSY)); I2C0_C1 |= I2C_C1_MST; while(!(I2C0_S & I2C_S_BUSY)) /* toggle_led() */
+#define STOP() assert(I2C0_S & I2C_S_BUSY); I2C0_C1 &= ~I2C_C1_MST; while(I2C0_S & I2C_S_BUSY) /* toggle_led() */
 #define REPEATED_START() I2C0_C1 |= I2C_C1_RSTA
 
 #define WRITE(b)                                \
@@ -92,9 +103,9 @@ static struct {
 __attribute__((interrupt ("IRQ"))) void pit0_isr(void)
 {
     errors += 1;
-    
+
     STOP();
-        
+
     DISABLE_PIT();
     PIT_TFLG(0) |= PIT_TFLG_TIF;
 }
@@ -113,10 +124,10 @@ __attribute__((interrupt ("IRQ"))) void i2c0_isr()
             }
 
             WRITE_NOBLOCK(context.reg);
-            
+
             context.phase += 1;
             break;
-            
+
         case 1:
             RESET_PIT();
 
@@ -127,7 +138,7 @@ __attribute__((interrupt ("IRQ"))) void i2c0_isr()
             if (context.length == 1) {
                 NACK();
             }
-    
+
             REPEATED_START();
             WRITE_NOBLOCK((context.slave << 1) | 1);
 
@@ -146,7 +157,7 @@ __attribute__((interrupt ("IRQ"))) void i2c0_isr()
 
             context.phase += 1;
             break;
-            
+
         case 3:
             if (context.read < context.length - 1) {
                 RESET_PIT();
@@ -154,7 +165,7 @@ __attribute__((interrupt ("IRQ"))) void i2c0_isr()
                 if (context.read == context.length - 2) {
                     NACK();
                 }
-        
+
                 context.buffer[context.read ^ 1] = READ_NOBLOCK();
                 context.read += 1;
             } else {
@@ -169,9 +180,10 @@ __attribute__((interrupt ("IRQ"))) void i2c0_isr()
             }
         }
     } else {
+        usbserial_printf("%b\n", I2C0_S);
         assert(0);
     }
-    
+
     I2C0_S |= I2C_S_IICIF;
 
     return;
@@ -181,7 +193,7 @@ error:
     STOP();
 
     errors += 1;
-    
+
     I2C0_S |= I2C_S_IICIF;
 
     return;
@@ -195,15 +207,15 @@ unsigned int i2c_bytes_read()
 int i2c_read_noblock(uint8_t slave, uint8_t reg, uint8_t *buffer, size_t n)
 {
     if (I2C0_S & I2C_S_BUSY) {
-        return 0;
-    }
-
-    if (n == 0) {
         return 1;
     }
 
+    if (n == 0) {
+        return 0;
+    }
+
     /* Enable interrupts. */
-    
+
     I2C0_C1 |= I2C_C1_IICIE;
     I2C0_S |= I2C_S_IICIF;
 
@@ -213,7 +225,7 @@ int i2c_read_noblock(uint8_t slave, uint8_t reg, uint8_t *buffer, size_t n)
     context.buffer = buffer;
     context.length = n;
     context.read = 0;
-    
+
     START();
     TRANSMIT();
     ACK();
@@ -224,7 +236,7 @@ int i2c_read_noblock(uint8_t slave, uint8_t reg, uint8_t *buffer, size_t n)
 
     RESET_PIT();
 
-    return 1;
+    return 0;
 }
 
 int i2c_read(uint8_t slave, uint8_t reg, uint8_t *buffer, size_t n)
@@ -234,18 +246,18 @@ int i2c_read(uint8_t slave, uint8_t reg, uint8_t *buffer, size_t n)
     if (I2C0_S & I2C_S_BUSY) {
         return -1;
     }
-    
+
     I2C0_C1 &= ~I2C_C1_IICIE;
     I2C0_S |= I2C_S_IICIF;
 
     /* Start the transmission. */
-    
+
     TRANSMIT();
     START();
     ACK();
-    
+
     /* Select the slave and register to read. */
-    
+
     WRITE((slave << 1) | 0);
     WRITE(reg);
 
@@ -254,28 +266,28 @@ int i2c_read(uint8_t slave, uint8_t reg, uint8_t *buffer, size_t n)
     if (n == 1) {
         NACK();
     }
-    
+
     REPEATED_START();
     WRITE((slave << 1) | 1);
 
     /* Switch to reception and prime the data register. */
-    
-    RECEIVE();    
+
+    RECEIVE();
     READ();
 
     /* Read all but the last bytes and store with proper
      * endianness. */
-    
+
     for (i = 0 ; i < n - 1 ; i += 1) {
         if (i == n - 2) {
             NACK();
         }
-        
+
         buffer[i ^ 1] = READ();
     }
 
     /* Stop transaction and read the remaining byte. */
-    
+
     STOP();
     TRANSMIT();
 
@@ -292,34 +304,34 @@ int i2c_write(uint8_t slave, uint8_t reg, uint8_t value)
 
     I2C0_C1 &= ~I2C_C1_IICIE;
     I2C0_S |= I2C_S_IICIF;
-    
+
     /* Start the transmission. */
-    
+
     START();
     TRANSMIT();
     NACK();
 
     /* Select the slave and register to write. */
-    
+
     WRITE((slave << 1) | 0);
     WRITE(reg);
 
     /* Write value and stop the transaction. */
-    
+
     WRITE(value);
-    
+
     STOP();
 
     return 0;
 }
 
-void i2c_initialize()
+ void i2c_initialize()
 {
     enable_interrupt(11);
     enable_interrupt(30);
-    
+
     /* Enable the i2c and PORTB module clocks. */
-    
+
     SIM_SCGC4 |= SIM_SCGC4_I2C0;
     SIM_SCGC5 |= SIM_SCGC5_PORTB | SIM_SCGC5_PORTD;
 
@@ -328,11 +340,11 @@ void i2c_initialize()
     PORTB_PCR2 = PORTB_PCR3 = (PORT_PCR_MUX(2) | PORT_PCR_ODE |
                                PORT_PCR_DSE | PORT_PCR_PFE |
                                PORT_PCR_SRE);
-    
+
     /* Enable the i2c module and set the bus speed to 400Khz with a
      * SDA hold time of 0.75us, a SCL start hold time of 0.92us and a
      * SCL stop hold time of 1.33us. */
-    
+
     I2C0_F = I2C_F_MULT(2) | I2C_F_ICR(5);
     I2C0_FLT = I2C_FLT_FLT(4);
     I2C0_C1 |= I2C_C1_IICEN;

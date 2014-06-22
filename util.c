@@ -20,21 +20,21 @@ uint64_t cycles()
      * instructions. Check for it and if it did happen reload the
      * current systick value (since the last number of ticks read is
      * bound to still be accurate) . */
-    
+
     t_1 = ticks;
-    
+
     if (t_1 != t) {
         v = SYST_CVR;
         t = t_1;
     }
-    
+
     return (((uint64_t)t) << 24) | (uint64_t)(SYST_RVR - v);
 }
 
 void delay_ms(uint64_t n)
 {
     uint64_t t_0;
-    
+
     t_0 = cycles();
     while (cycles() - t_0 < cycles_in_ms(n));
 }
@@ -42,7 +42,7 @@ void delay_ms(uint64_t n)
 void delay_us(uint64_t n)
 {
     uint64_t t_0;
-    
+
     t_0 = cycles();
     while (cycles() - t_0 < cycles_in_us(n));
 }

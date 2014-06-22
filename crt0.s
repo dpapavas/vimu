@@ -1,20 +1,20 @@
-  	.section .startup
+        .section .startup
         .align   2
         .thumb_func
         .global   __startup
         .type __startup STT_FUNC
-        
+
 __startup:
         @@ Initialize the general-purpose registers.
 
         mov     r0, #0
-	mov     r1, #0
-	mov     r2, #0
-	mov     r3, #0
-	mov     r4, #0
-	mov     r5, #0
-	mov     r6, #0
-	mov     r7, #0
+        mov     r1, #0
+        mov     r2, #0
+        mov     r3, #0
+        mov     r4, #0
+        mov     r5, #0
+        mov     r6, #0
+        mov     r7, #0
         mov     r8, r7
         mov     r9, r7
         mov     r10, r7
@@ -22,8 +22,8 @@ __startup:
         mov     r12, r7
 
         @@ Enable interrupts.
-        
-	cpsie   i
+
+        cpsie   i
 
         @@ ldr     r0, =__stack_end
         @@ cmp     r0, sp
@@ -41,7 +41,7 @@ __startup:
 
 @@ 1:      cmp     r0, r1
 @@         beq     2f
-        
+
 @@         ldmia   r2!, {r3}
 @@         stmia   r0!, {r3}
 @@         b       1b
@@ -57,13 +57,13 @@ __startup:
 
 @@ 3:      cmp     r0, r1
 @@         beq     4f
-        
+
 @@         stmia   r0!, {r2}
 @@         b       3b
 
         @@ Pass control to C.
-        
+
         .extern reset
 4:      bl      reset
-        
+
         b       .

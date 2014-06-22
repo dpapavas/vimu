@@ -42,6 +42,7 @@
 #define SETUP_SET_CONTROL_LINE_STATE 0x2221
 
 #define LINE_STATE_DTR (1 << 0)
+#define LINE_STATE_RTS (1 << 1)
 
 #define DESCRIPTOR_TYPE(value) ((uint8_t)((value) >> 8))
 #define DESCRIPTOR_TYPE_DEVICE 1

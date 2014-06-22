@@ -28,7 +28,7 @@ static __attribute__((naked, used)) void diagnose_fault (unsigned long *sp)
     usbserial_printf("\nr0: %8x\tr1: %8x\tr2: %8x\tr3: %8x\tr12: %8x\n"
                      "lr: %8x\tpc: %8x\tpsr: %8x\n",
                      sp[0], sp[1], sp[2], sp[3],
-                     sp[4], sp[5], sp[6], sp[7]); 
+                     sp[4], sp[5], sp[6], sp[7]);
 
     while(1);
 }
@@ -38,9 +38,9 @@ static __attribute__((naked, noreturn, interrupt ("IRQ"))) void fault_isr(void)
     /* Determine if processor uses the process or main stack by
      * checking bit 2 of the LR register and pass the relevant stack
      * pointer to the diagnostic function. */
-    
-    __asm__ volatile	(
-        "movs r0, #4\n\t" 
+
+    __asm__ volatile(
+        "movs r0, #4\n\t"
         "mov r1, lr\n\t"
         "tst r0, r1\n\t"
         "beq 1f\n\t"
@@ -113,7 +113,7 @@ void portc_isr(void)            __attribute__ ((weak, alias("unused_isr")));
 void portd_isr(void)            __attribute__ ((weak, alias("unused_isr")));
 void porte_isr(void)            __attribute__ ((weak, alias("unused_isr")));
 void software_isr(void)         __attribute__ ((weak, alias("unused_isr")));
-  
+
 __attribute__ ((section(".vectors"), used))
 void (* const vectors[])(void) =
 {
@@ -202,7 +202,7 @@ void reset(void)
     WDOG_UNLOCK = (uint16_t)0xc520;
     WDOG_UNLOCK = (uint16_t)0xd928;
     asm("cpsie i");
-    
+
     WDOG_STCTRLH &= ~(WDOG_STCTRLH_WDOGEN);
 
     /* Copy the data section to RAM and clear the bss section. */
@@ -217,51 +217,53 @@ void reset(void)
 
     /* Bring up the system clock.  We start out in FEI mode. */
 
-    OSC0_CR = OSC_CR_SC8P | OSC_CR_SC2P; /* Configure crystal load capacitors. */
+    OSC0_CR = OSC_CR_SC8P | OSC_CR_SC2P; /* Configure crystal load
+                                          * capacitors. */
+
     MCG_C2 = MCG_C2_RANGE0(2) | MCG_C2_EREFS0; /* Enable external crystal,
                                                   very high frequency range. */
-    
+
     /* Switch to crystal as clock source, FLL input = 16 MHz / 512 */
-    MCG_C1 =  MCG_C1_CLKS(2) | MCG_C1_FRDIV(4); 
-    
+    MCG_C1 =  MCG_C1_CLKS(2) | MCG_C1_FRDIV(4);
+
     /* Wait for crystal oscillator to stabilize. */
-    
+
     while ((MCG_S & MCG_S_OSCINIT0) == 0);
     while ((MCG_S & MCG_S_IREFST) != 0);
     while ((MCG_S & MCG_S_CLKST_MASK) != MCG_S_CLKST(2));
-    
+
     /* Now we're in FBE mode, config PLL input for
      * 16 MHz Crystal / 4 = 4 MHz */
-    
+
     MCG_C5 = MCG_C5_PRDIV0(3);
     MCG_C6 = MCG_C6_PLLS | MCG_C6_VDIV0(0); /* Config PLL for 96 MHz output. */
-    
+
     /* Wait for PLL lock and we're in PBE mode. */
-    
+
     while (!(MCG_S & MCG_S_PLLST));
     while (!(MCG_S & MCG_S_LOCK0));
-    
+
     /* Configure the clock divisors: 48 MHz core, 48 MHz bus and 24 MHz
      * flash. */
-    
+
     SIM_CLKDIV1 = SIM_CLKDIV1_OUTDIV1(1) | SIM_CLKDIV1_OUTDIV2(1) |
                   SIM_CLKDIV1_OUTDIV4(3);
 
     /* Switch to PLL as clock source, FLL input = 16 MHz / 512,
        Wait for PLL clock to be selected and we're in PEE mode. */
-    
+
     MCG_C1 = MCG_C1_CLKS(0) | MCG_C1_FRDIV(4);
     while ((MCG_S & MCG_S_CLKST_MASK) != MCG_S_CLKST(3));
-    
+
     /* Enable the clock to PORTC, and set C5 (the led) as a GPIO
      * output. */
-    
+
     SIM_SCGC5 |= SIM_SCGC5_PORTC;
-    PORTC_PCR5 = PORT_PCR_MUX(1) | PORT_PCR_DSE;    
+    PORTC_PCR5 = PORT_PCR_MUX(1) | PORT_PCR_DSE;
     GPIOC_PDDR = ((uint32_t)1 << 5);
 
     /* Configure the SysTick timer. */
-    
+
     SYST_RVR = 0xffffff - 1;
     SYST_CSR = SYST_CSR_ENABLE | SYST_CSR_CLKSOURCE | SYST_CSR_TICKINT;
     SYST_CVR = 0;
@@ -270,9 +272,9 @@ void reset(void)
 
     SIM_SCGC6 |= SIM_SCGC6_PIT;
     PIT_MCR &= ~PIT_MCR_MDIS;
-        
+
     __libc_init_array();
-    
+
     usb_initialize();
     i2c_initialize();
 
