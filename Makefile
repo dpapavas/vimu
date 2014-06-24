@@ -44,7 +44,7 @@ all: $(TARGET).hex
 install: $(TARGET).hex
 
 $(TARGET).elf: $(OBJS) $(SOBJS) mk20dx128.ld
-	$(CC) $(LDFLAGS) $(LIBS) -o $@ $(OBJS) $(SOBJS) > $(TARGET).map
+	$(CC) $(LDFLAGS) -o $@ $(OBJS) $(SOBJS) $(LIBS) > $(TARGET).map
 
 %.hex: %.elf
 	$(SIZE) $<

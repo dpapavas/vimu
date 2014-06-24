@@ -78,6 +78,6 @@
 void power_sensors_down();
 void power_sensors_up();
 int sensors_are_online();
-int16_t *read_sensor_values();
+int read_sensor_values(int16_t *line);
 
 #endif

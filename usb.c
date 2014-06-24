@@ -2,6 +2,8 @@
 #include <stdlib.h>
 #include <stdarg.h>
 #include <string.h>
+#include <math.h>
+
 #include "mk20dx128.h"
 #include "util.h"
 #include "usb.h"
@@ -594,14 +596,27 @@ static void utostr(uint64_t n, int radix, int width)
     }
 }
 
-static void itostr(int64_t n, int radix, int width)
+static void itostr(int64_t n, int radix, int width, int plus)
 {
     if (n < 0) {
         usbserial_write("-", 1, 0);
         utostr((uint64_t)(-n), radix, width);
     } else {
+        if (plus == 1) {
+            usbserial_write("+", 1, 0);
+        } else if (plus == 1) {
+            usbserial_write(" ", 1, 0);
+        }
+
         utostr((uint64_t)n, radix, width);
     }
+}
+
+static void ftostr(float n, int width, int precision, int plus)
+{
+    itostr((int64_t)n, 10, width, plus);
+    usbserial_write(".", 1, 0);
+    utostr((int64_t)(fabs(fmodf(n, 1) * 100000000)), 10, width);
 }
 
 int usbserial_printf(const char *format, ...)
@@ -621,27 +636,41 @@ int usbserial_printf(const char *format, ...)
         c = d;
 
         if (*c == '%') {
-            int size = 2, base = -1, sign = -1, width = -1;
+            int size = 2, base = -1, sign = -1, width = -1, precision = 5;
+            int plus = 0;
 
             for (c += 1 ; ; c += 1) {
                 if (*c == '%') {
                     usbserial_write("%", 1, 0);
                     break;
-                } else if (*c == 's') {
-                    char *s;
-
-                    s = va_arg(ap, char *);
-                    usbserial_write(s, strlen(s), 0);
-                    break;
+                } else if (*c == '+') {
+                    plus = 1;
+                } else if (*c == ' ') {
+                    plus = 2;
                 } else if (*c >= '0' && *c <= '9' && width < 0) {
                     width = strtol(c, (char **)&c, 10);
+
+                    if (*c == '.') {
+                        precision = strtol(c + 1, (char **)&c, 10);
+                    }
+
                     c -= 1;
                 } else if (*c == 'l') {
                     size += 1;
                 } else if (*c == 'h') {
                     size -= 1;
                 } else {
-                    if (*c == 'd') {
+                    if (*c == 's') {
+                        char *s;
+
+                        s = va_arg(ap, char *);
+                        usbserial_write(s, strlen(s), 0);
+                        break;
+                    } else if (*c == 'f') {
+                        ftostr((float)va_arg(ap, double),
+                               width, precision, plus);
+                        break;
+                    } else if (*c == 'd') {
                         base = 10;
                         sign = 1;
                     } else if (*c == 'u') {
@@ -660,10 +689,10 @@ int usbserial_printf(const char *format, ...)
                     if (sign) {
                         switch (size) {
                         case 3:
-                            itostr(va_arg(ap, int64_t), base, width);
+                            itostr(va_arg(ap, int64_t), base, width, plus);
                             break;
                         default:
-                            itostr(va_arg(ap, int), base, width);
+                            itostr(va_arg(ap, int), base, width, plus);
                             break;
                         }
                     } else {

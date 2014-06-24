@@ -1,14 +1,12 @@
 #include <unistd.h>
+#include <string.h>
 
 #include "mk20dx128.h"
 #include "i2c.h"
 #include "sensors.h"
 #include "util.h"
 
-/* Always make sure a byte is left unused in the ring buffer so that
- * we can distinguish between empty and full. */
-
-#define LINE_WIDTH (9 * sizeof(uint16_t))
+#define LINE_WIDTH (10 * sizeof(uint16_t))
 #define RING_CAPACITY (3 * LINE_WIDTH)
 
 static struct {
@@ -128,6 +126,7 @@ void power_sensors_up()
                         FIFO_EN_YG_FIFO_EN |
                         FIFO_EN_ZG_FIFO_EN |
                         FIFO_EN_ACCEL_FIFO_EN |
+                        FIFO_EN_TEMP_FIFO_EN |
                         FIFO_EN_SLV0_FIFO_EN);
 
     configure_register (MPU6050, USER_CTRL,
@@ -143,15 +142,8 @@ int sensors_are_online()
     return online;
 }
 
-int16_t *read_sensor_values()
+int read_sensor_values(int16_t *line)
 {
-    int16_t *line;
-
-    /* usbserial_trace("* spc = %d, rd = %d, wr = %d, " */
-    /*                 "transferred = %d, pending = %d, busy=%d\n", */
-    /*                 RING_SPACE, ring.read, ring.write, transferred, */
-    /*                 pending, i2c_busy()); */
-
     /* Check whether we can start a new transfer. */
 
     if (!i2c_busy()) {
@@ -187,7 +179,7 @@ int16_t *read_sensor_values()
                  * one go to save on overhead. */
 
                 while ((k = i2c_read_register_word(MPU6050, FIFO_COUNT)) < 0);
-                assert(k >= 0 && k <= 1024);
+                assert(k >= 0 && k < 1024);
 
                 if (k >= LINE_WIDTH) {
                     /* usbserial_trace("t: %8x, %d\n", 100, 100); */
@@ -206,12 +198,12 @@ int16_t *read_sensor_values()
     }
 
     if (transferred >= LINE_WIDTH) {
-        line = (int16_t *)(ring.buffer + ring.read);
+        memcpy(line, (int16_t *)(ring.buffer + ring.read), LINE_WIDTH);
         ring.read = (ring.read + LINE_WIDTH) % RING_CAPACITY;
         transferred -= LINE_WIDTH;
 
-        return line;
+        return 0;
     } else {
-        return NULL;
+        return -1;
     }
 }
