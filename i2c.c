@@ -325,7 +325,7 @@ int i2c_write(uint8_t slave, uint8_t reg, uint8_t value)
     return 0;
 }
 
- void i2c_initialize()
+void i2c_initialize()
 {
     enable_interrupt(11);
     enable_interrupt(30);

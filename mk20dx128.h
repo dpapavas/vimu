@@ -6,8 +6,15 @@
 #define PORTB_PCR1 (*((volatile uint32_t *)0x4004a004))
 #define PORTB_PCR2 (*((volatile uint32_t *)0x4004a008))
 #define PORTB_PCR3 (*((volatile uint32_t *)0x4004a00c))
+
+#define PORTC_PCR4 (*((volatile uint32_t *)0x4004b010))
 #define PORTC_PCR5 (*((volatile uint32_t *)0x4004b014))
+#define PORTC_PCR6 (*((volatile uint32_t *)0x4004b018))
+#define PORTC_PCR7 (*((volatile uint32_t *)0x4004b01c))
+
+#define PORTD_PCR1 (*((volatile uint32_t *)0x4004c004))
 #define PORTD_PCR5 (*((volatile uint32_t *)0x4004c014))
+
 #define PORT_PCR_MUX(n) (uint32_t)(((n) & 0b111) << 8)
 #define PORT_PCR_DSE ((uint32_t)1 << 6)
 #define PORT_PCR_ODE ((uint32_t)1 << 5)
@@ -71,7 +78,9 @@
 #define SIM_SCGC5_PORTB ((uint32_t)1 << 10)
 #define SIM_SCGC5_PORTC ((uint32_t)1 << 11)
 #define SIM_SCGC5_PORTD ((uint32_t)1 << 12)
+#define SIM_SCGC6_SPI0 ((uint32_t)1 << 12)
 #define SIM_SCGC6_PIT ((uint32_t)1 << 23)
+#define SIM_SCGC6_CRC ((uint32_t)1 << 18)
 #define SIM_CLKDIV1_OUTDIV1(n) (uint32_t)(((n) & 0b1111) << 28)
 #define SIM_CLKDIV1_OUTDIV2(n) (uint32_t)(((n) & 0b1111) << 24)
 #define SIM_CLKDIV1_OUTDIV4(n) (uint32_t)(((n) & 0b1111) << 16)
@@ -128,7 +137,7 @@
 #define USB_INTEN_USBRSTEN ((uint8_t)1 << 0)
 #define USB_STAT_TX ((uint8_t)1 << 3)
 #define USB_STAT_ODD ((uint8_t)1 << 2)
-#define USB_STAT_ENDP(n) ((n) >> 4)
+#define USB_STAT_ENDP(n) (uint8_t)((n) >> 4)
 
 #define DMA_ES (*((volatile uint32_t *)0x40008004))
 #define DMA_ES_VLD ((uint32_t)1 << 31)
@@ -166,6 +175,47 @@
 #define I2C_C2_HDRS ((uint8_t)1 << 5)
 #define I2C_FLT_FLT(n) (uint8_t)((n) & 0b1111)
 
+#define SPI0_MCR (*((volatile uint32_t *)0x4002c000))
+#define SPI_MCR_HALT ((uint32_t)1 << 0)
+#define SPI_MCR_CLR_RXF ((uint32_t)1 << 10)
+#define SPI_MCR_CLR_TXF ((uint32_t)1 << 11)
+#define SPI_MCR_DIS_RXF ((uint32_t)1 << 12)
+#define SPI_MCR_DIS_TXF ((uint32_t)1 << 13)
+#define SPI_MCR_MDIS ((uint32_t)1 << 14)
+#define SPI_MCR_ROOE ((uint32_t)1 << 24)
+#define SPI_MCR_DCONF(n) (uint32_t)(((n) & 0b11) << 28)
+#define SPI_MCR_MSTR ((uint32_t)1 << 31)
+#define SPI0_TCR (*((volatile uint32_t *)0x4002c008))
+#define SPI_TCR_TCNT(n) (uint32_t)((n) << 16)
+#define SPI0_CTAR0 (*((volatile uint32_t *)0x4002c00c))
+#define SPI0_CTAR1 (*((volatile uint32_t *)0x4002c010))
+#define SPI_CTAR_BR(n) (uint32_t)(((n) & 0b1111) << 0)
+#define SPI_CTAR_DT(n) (uint32_t)(((n) & 0b1111) << 4)
+#define SPI_CTAR_ASC(n) (uint32_t)(((n) & 0b1111) << 8)
+#define SPI_CTAR_CSSCK(n) (uint32_t)(((n) & 0b1111) << 12)
+#define SPI_CTAR_PBR(n) (uint32_t)(((n) & 0b11) << 16)
+#define SPI_CTAR_PDT(n) (uint32_t)(((n) & 0b11) << 18)
+#define SPI_CTAR_PASC(n) (uint32_t)(((n) & 0b11) << 20)
+#define SPI_CTAR_PCSSCK(n) (uint32_t)(((n) & 0b11) << 22)
+#define SPI_CTAR_LSBFE ((uint32_t)1 << 24)
+#define SPI_CTAR_CPHA ((uint32_t)1 << 25)
+#define SPI_CTAR_CPOL ((uint32_t)1 << 26)
+#define SPI_CTAR_FMSZ(n) (uint32_t)(((n) & 0b1111) << 27)
+#define SPI_CTAR_DBR ((uint32_t)1 << 31)
+#define SPI0_SR (*((volatile uint32_t *)0x4002c02c))
+#define SPI_SR_RFDF ((uint32_t)1 << 17)
+#define SPI_SR_TFFF ((uint32_t)1 << 25)
+#define SPI_SR_TCF ((uint32_t)1 << 31)
+#define SPI0_PUSHR (*((volatile uint32_t *)0x4002c034))
+#define SPI_PUSHR_PCS_MASK ((uint32_t)0b111111 << 16)
+#define SPI_PUSHR_PCS(n) ((~((uint32_t)1 << (16 + n))) & SPI_PUSHR_PCS_MASK)
+#define SPI_PUSHR_CTAS(n) (uint32_t)(((n) & 0b111) << 28)
+#define SPI0_POPR (*((volatile uint32_t *)0x4002c038))
+#define SPI0_RSER (*((volatile uint32_t *)0x4002c030))
+#define SPI_RSER_TCF_RE ((uint32_t)1 << 31)
+#define SPI_RSER_TFFF_RE ((uint32_t)1 << 25)
+#define SPI_RSER_RFDF_RE ((uint32_t)1 << 17)
+
 #define PIT_MCR *(volatile uint32_t *)0x40037000
 #define PIT_LDVAL(n) (*((volatile uint32_t *)(0x40037100 + 0x10 * (n))))
 #define PIT_CVAL(n) (*((volatile uint32_t *)(0x40037104 + 0x10 * (n))))
@@ -194,5 +244,13 @@
 #define SCB_CFSR_BFARVALID ((uint32_t)1 << 15)
 
 #define wfi() asm("wfi")
+
+#define CRC_CRC32 *(volatile uint32_t *)0x40032000
+#define CRC_CRC16 *(volatile uint16_t *)0x40032000
+#define CRC_CRC8 *(volatile uint8_t *)0x40032000
+#define CRC_GPOLY *(volatile uint32_t *)0x40032004
+#define CRC_CTRL *(volatile uint32_t *)0x40032008
+#define CRC_CTRL_TCRC ((uint32_t)1 << 24)
+#define CRC_CTRL_WAS ((uint32_t)1 << 25)
 
 #endif

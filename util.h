@@ -38,9 +38,9 @@ uint64_t cycles();
 void delay_ms(uint64_t n);
 void delay_us(uint64_t n);
 
-#define toggle_led() GPIOC_PTOR = (1UL << 5)
-#define turn_on_led() GPIOC_PSOR = (1UL << 5)
-#define turn_off_led() GPIOC_PCOR = (1UL << 5)
+#define toggle_led() GPIOC_PTOR = (1ul << 5)
+#define turn_on_led() GPIOC_PSOR = (1ul << 5)
+#define turn_off_led() GPIOC_PCOR = (1ul << 5)
 
 #define LCG_RAND_MAX 2147483647
 uint32_t lcg_rand();
