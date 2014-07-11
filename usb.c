@@ -207,7 +207,6 @@ static void handle_control_transfer (uint8_t status)
          * data in stage if the. */
 
         if (phase != PHASE_SETUP) {
-            /* while (1) {delay_ms(500); toggle_led()}; */
             USB0_ENDPT(0) |= USB_ENDPT_EPSTALL;
             break;
         }
@@ -226,17 +225,16 @@ static void handle_control_transfer (uint8_t status)
 
         process_setup_packet(request, value, index, length);
 
-        /* Adjust the output to the maximum byte count
-         * specified by the host. */
+        if (phase == PHASE_DATA_IN || phase == PHASE_STATUS) {
+            /* Make sure we don't return more than the host asked
+             * for. */
 
-        if (outputs[CONTROL_ENDPOINT].length > length) {
-            outputs[CONTROL_ENDPOINT].length = length;
-        }
+            if (length < outputs[CONTROL_ENDPOINT].length) {
+                outputs[CONTROL_ENDPOINT].length = length;
+            }
 
-        if (phase == PHASE_DATA_IN ||
-            phase == PHASE_STATUS) {
-            /* If the next stage requires data output prepare the
-             * buffers. */
+            /* Prepare the buffers since the next stage requires data
+             * output. */
 
             n = outputs[CONTROL_ENDPOINT].length < CONTROL_BUFFER_SIZE ?
                 outputs[CONTROL_ENDPOINT].length : CONTROL_BUFFER_SIZE;
@@ -250,19 +248,6 @@ static void handle_control_transfer (uint8_t status)
             outputs[CONTROL_ENDPOINT].length -= n;
             oddbits ^= (1 << CONTROL_ENDPOINT);
         } else if (phase == PHASE_DATA_OUT) {
-            /* If the request contained data read it. */
-
-            n = BDT_DESC_BYTE_COUNT(entry->desc);
-
-            assert (n > 0);
-
-            memcpy(inputs[CONTROL_ENDPOINT].data, entry->buffer,
-                   (inputs[CONTROL_ENDPOINT].length < n ?
-                    inputs[CONTROL_ENDPOINT].length : n));
-
-            inputs[CONTROL_ENDPOINT].data += n;
-            inputs[CONTROL_ENDPOINT].length -= n;
-
             /* Prepare to send a zero-length data packet to
              * aknowledge proper reception during the
              * preceding OUT phase. */
@@ -314,11 +299,14 @@ static void handle_control_transfer (uint8_t status)
         if (phase == PHASE_DATA_OUT) {
             /* Read the data. */
 
-            n = BDT_DESC_BYTE_COUNT(entry->desc);
+            assert (inputs[CONTROL_ENDPOINT].length > 0);
 
-            memcpy(inputs[CONTROL_ENDPOINT].data, entry->buffer,
-                   (inputs[CONTROL_ENDPOINT].length < n ?
-                    inputs[CONTROL_ENDPOINT].length : n));
+            n = inputs[CONTROL_ENDPOINT].length <
+                BDT_DESC_BYTE_COUNT(entry->desc) ?
+                inputs[CONTROL_ENDPOINT].length :
+                BDT_DESC_BYTE_COUNT(entry->desc);
+
+            memcpy(inputs[CONTROL_ENDPOINT].data, entry->buffer, n);
 
             inputs[CONTROL_ENDPOINT].data += n;
             inputs[CONTROL_ENDPOINT].length -= n;
@@ -434,6 +422,7 @@ void usb_initialize()
     /* Enable the USB interrupt. */
 
     enable_interrupt(35);
+    prioritize_interrupt(35, 3);
 
     /* Set the USB clock source to MGCPLL with a divider for 48Mhz and
      * enable the USB clock. */
@@ -481,16 +470,12 @@ int usb_enumerated()
 
 void usb_await_enumeration()
 {
-    while(configuration == 0) {
-        wfi();
-    }
+    sleep_while(configuration == 0);
 }
 
 void usbserial_await_dtr()
 {
-    while(!(line_state & LINE_STATE_DTR)) {
-        wfi();
-    }
+    sleep_while(!(line_state & LINE_STATE_DTR));
 }
 
 int usbserial_is_dtr()
@@ -500,9 +485,7 @@ int usbserial_is_dtr()
 
 void usbserial_await_rts()
 {
-    while(!(line_state & LINE_STATE_RTS)) {
-        wfi();
-    }
+    sleep_while(!(line_state & LINE_STATE_RTS));
 }
 
 int usbserial_is_rts()
@@ -531,9 +514,7 @@ int usbserial_write(const char *s, int n, int flush)
 
     out = bdt_entry(DATA_ENDPOINT, 1, i);
 
-    while (out->desc & BDT_DESC_OWN) {
-        wfi();
-    }
+    sleep_while (out->desc & BDT_DESC_OWN);
 
     if (m > 0) {
         memcpy(out->buffer + o, s, m);
@@ -691,6 +672,9 @@ int usbserial_printf(const char *format, ...)
                         case 3:
                             itostr(va_arg(ap, int64_t), base, width, plus);
                             break;
+                        case 2:
+                            itostr(va_arg(ap, int32_t), base, width, plus);
+                            break;
                         default:
                             itostr(va_arg(ap, int), base, width, plus);
                             break;
@@ -704,7 +688,7 @@ int usbserial_printf(const char *format, ...)
                             utostr(va_arg(ap, uint32_t), base, width);
                             break;
                         default:
-                            utostr(va_arg(ap, int), base, width);
+                            utostr(va_arg(ap, unsigned int), base, width);
                             break;
                         }
                     }

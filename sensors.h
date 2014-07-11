@@ -48,6 +48,11 @@
 
 #define INT_PIN_CFG 55
 #define INT_PIN_CFG_I2C_BYPASS_EN  ((uint8_t)1 << 1)
+#define INT_PIN_CFG_INT_RD_CLEAR  ((uint8_t)1 << 4)
+#define INT_PIN_CFG_LATCH_INT_EN  ((uint8_t)1 << 5)
+
+#define INT_ENABLE 56
+#define INT_ENABLE_DATA_RDY_EN  ((uint8_t)1 << 0)
 
 #define I2C_SLV0_ADDR 37
 #define I2C_SLV0_ADDR_I2C_SLV0_ADDR(n) ((uint8_t)(n) & 0b111111)
@@ -78,6 +83,6 @@
 void power_sensors_down();
 void power_sensors_up();
 int sensors_are_online();
-int read_sensor_values(int16_t *line);
+void read_sensor_values(int16_t *line);
 
 #endif

@@ -5,31 +5,11 @@
 
 #define assert(cond)                                            \
     if(!(cond)) {                                               \
-        if (usbserial_is_dtr()) {                               \
-            usbserial_trace("assertion failed: %s.\n", #cond);  \
-                                                                \
-            while(1);                                           \
-        } else {                                                \
-            while(1) {                                          \
-                delay_ms(50);                                   \
-                toggle_led();                                   \
-            }                                                   \
+        while(1) {                                              \
+            delay_ms(50);                                       \
+            toggle_led();                                       \
         }                                                       \
     }
-
-#define hang(cond)                                              \
-    if(!(cond)) {                                               \
-        if (usbserial_is_dtr()) {                               \
-                                                                \
-            usbserial_trace("assertion failed: %s.\n", #cond);  \
-        }  else {                                               \
-            while(1) {                                          \
-                delay_ms(50);                                   \
-                toggle_led();                                   \
-            }                                                   \
-        }                                                       \
-    }                                                           \
-    while(1);
 
 #define cycles_in_ms(t) ((t) * (F_CPU / 1000))
 #define cycles_in_us(t) ((t) * (F_CPU / 1000000))

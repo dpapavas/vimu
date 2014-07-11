@@ -64,6 +64,7 @@ SECTIONS
                 . = ALIGN(4);
         } > RAM
         __bss_end = .;
+        __stack_start = .;
 
         __stack_end = ORIGIN(RAM) + LENGTH(RAM);
 }

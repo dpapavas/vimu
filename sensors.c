@@ -6,55 +6,113 @@
 #include "sensors.h"
 #include "util.h"
 
-#define LINE_WIDTH (10 * sizeof(uint16_t))
-#define RING_CAPACITY (3 * LINE_WIDTH)
+/* #undef assert */
+/* #define assert usbserial_assert */
 
-static struct {
-    uint8_t buffer[RING_CAPACITY];
-    uint8_t read, write;
-} ring;
+#define MAX_RETRIES 5
+#define LINE_WIDTH 10
 
-static uint8_t online;
-static uint16_t pending, transferred;
+static int16_t buffers[2][LINE_WIDTH];
+static uint8_t online, r = 0, w = 0;
+static volatile uint8_t fetched, available;
+
+static void fetch_more_data();
+
+static void data_ready(int status, int count)
+{
+    assert(status == I2C_READ_SUCCESS);
+
+    fetched += 1;
+    available -= 1;
+    r = !r;
+
+    if (available > 0) {
+        fetch_more_data();
+    }
+}
+
+static void fetch_more_data()
+{
+    /* usbserial_trace("%d, %d\n", */
+    /*                 available, i2c_read_register_word(MPU6050, */
+    /*                                                   FIFO_COUNT)); */
+
+    assert(fetched < 2);
+    assert(i2c_read_noblock(MPU6050, FIFO_R_W, (uint8_t *)(buffers[w]),
+                            sizeof(buffers[0]), data_ready) == 0);
+
+    w = !w;
+}
+
+__attribute__((interrupt ("IRQ"))) void portb_isr(void)
+{
+    if (PORTB_PCR0 & PORT_PCR_ISF) {
+        PORTB_PCR0 |= PORT_PCR_ISF;
+
+        available += 1;
+
+        /* Make sure the FIFO hasn't overflown. */
+
+        assert(available * sizeof(buffers[0]) < 1024);
+
+        /* { */
+        /*     static uint64_t c; */
+        /*     uint64_t t; */
+
+        /*     t = cycles(); */
+        /*     usbserial_trace("%lu\n", t - c); */
+        /*     c = t; */
+        /* } */
+
+        if (available == 1) {
+            fetch_more_data();
+        }
+    }
+}
 
 static void configure_register(uint8_t slave, uint8_t reg, uint8_t value)
 {
     uint8_t r;
+    int i;
 
     /* Write a register and read it back to validate the
      * transmission.  Retry if necessary. */
 
-    for(;;) {
+    for(i = 0 ; i < MAX_RETRIES ; i += 1) {
         if (i2c_write(slave, reg, value) == 0 &&
             i2c_read(slave, reg, &r, 1) == 0 &&
             r == value) {
             break;
         }
     }
+
+    assert(i < MAX_RETRIES);
 }
 
 void power_sensors_down()
 {
-    /* Pull PB1 low to power down the sensors. */
+    /* Pull PB0 low to power down the sensors. */
 
-    GPIOB_PCOR |= ((uint32_t)1 << 1);
+    GPIOD_PCOR |= ((uint32_t)1 << 6);
 
     online = 0;
 }
 
 void power_sensors_up()
 {
+    SIM_SCGC5 |= SIM_SCGC5_PORTD | SIM_SCGC5_PORTC;
+
     /* Configure PB1 and and PD5 as outputs and pull them high and low
      * respectively to power the sensors. */
 
-    PORTB_PCR1 = PORT_PCR_MUX(1) | PORT_PCR_DSE;
-
-    GPIOB_PDDR |= ((uint32_t)1 << 1);
-    GPIOB_PSOR |= ((uint32_t)1 << 1);
-
     PORTD_PCR5 = PORT_PCR_MUX(1) | PORT_PCR_DSE;
-    GPIOD_PDDR = ((uint32_t)1 << 5);
-    GPIOD_PCOR |= ((uint32_t)1 << 1);
+    PORTC_PCR1 = PORT_PCR_MUX(1) | PORT_PCR_DSE;
+
+    GPIOD_PDDR |= ((uint32_t)1 << 5);
+    GPIOD_PCOR |= ((uint32_t)1 << 5);
+
+    GPIOC_PDDR |= ((uint32_t)1 << 1);
+    GPIOC_PSOR |= ((uint32_t)1 << 1);
 
     /* Wait for the sensor board to power-on. */
 
@@ -117,9 +175,14 @@ void power_sensors_up()
                         I2C_SLV0_CTRL_I2C_SLV0_LEN(6) |
                         I2C_SLV0_I2C_SLV0_EN);
 
-    /* Disable bypass mode and start writing to the FIFO.*/
+    /* Disable bypass mode and enable interrupts. */
 
-    configure_register (MPU6050, INT_PIN_CFG, 0);
+    configure_register (MPU6050, INT_PIN_CFG,
+                        INT_PIN_CFG_INT_RD_CLEAR);
+
+    configure_register (MPU6050, INT_ENABLE, INT_ENABLE_DATA_RDY_EN);
+
+    /* Start writing to the FIFO. */
 
     configure_register (MPU6050, FIFO_EN,
                         FIFO_EN_XG_FIFO_EN |
@@ -130,11 +193,17 @@ void power_sensors_up()
                         FIFO_EN_SLV0_FIFO_EN);
 
     configure_register (MPU6050, USER_CTRL,
-                        USER_CTRL_I2C_MST_EN |
-                        USER_CTRL_FIFO_EN);
+                        USER_CTRL_I2C_MST_EN | USER_CTRL_FIFO_EN);
+
+    /* Configure PB0 (connected to INTA) as an interrupt source. */
+
+    SIM_SCGC5 |= SIM_SCGC5_PORTB;
+    PORTB_PCR0 = PORT_PCR_MUX(1) | PORT_PCR_IRQC(9);
+
+    enable_interrupt(41);
+    prioritize_interrupt(41, 0);
 
     online = 1;
-    transferred = pending = 0;
 }
 
 int sensors_are_online()
@@ -142,68 +211,10 @@ int sensors_are_online()
     return online;
 }
 
-int read_sensor_values(int16_t *line)
+void read_sensor_values(int16_t *line)
 {
-    /* Check whether we can start a new transfer. */
+    sleep_while (fetched == 0);
 
-    if (!i2c_busy()) {
-        int n;
-
-        /* If a transmission was in progress check to see if we
-         * got what we asked for. */
-
-        if (pending > 0) {
-            n = i2c_bytes_read();
-
-            assert(pending >= n);
-
-            transferred += n;
-            pending -= n;
-        }
-
-        /* If fewer than requested bytes were read due to a
-         * transmission error, schedule a read for the rest
-         * otherwise try to schedule a read for the next line. */
-
-        if (pending > 0) {
-            assert(!(i2c_read_noblock(MPU6050, FIFO_R_W,
-                                      ring.buffer +
-                                      (ring.write - pending +
-                                       RING_CAPACITY) % RING_CAPACITY,
-                                      pending)));
-        } else {
-            if (RING_CAPACITY - (transferred + pending) >= LINE_WIDTH) {
-                int k;
-
-                /* Try to fill as much of the ring buffer as possible in
-                 * one go to save on overhead. */
-
-                while ((k = i2c_read_register_word(MPU6050, FIFO_COUNT)) < 0);
-                assert(k >= 0 && k < 1024);
-
-                if (k >= LINE_WIDTH) {
-                    /* usbserial_trace("t: %8x, %d\n", 100, 100); */
-
-                    assert(RING_CAPACITY - ring.write >= LINE_WIDTH);
-
-                    pending = LINE_WIDTH;
-                    assert(!(i2c_read_noblock(MPU6050, FIFO_R_W,
-                                              ring.buffer + ring.write,
-                                              pending)));
-
-                    ring.write = (ring.write + pending) % RING_CAPACITY;
-                }
-            }
-        }
-    }
-
-    if (transferred >= LINE_WIDTH) {
-        memcpy(line, (int16_t *)(ring.buffer + ring.read), LINE_WIDTH);
-        ring.read = (ring.read + LINE_WIDTH) % RING_CAPACITY;
-        transferred -= LINE_WIDTH;
-
-        return 0;
-    } else {
-        return -1;
-    }
+    memcpy (line, buffers[r], sizeof(buffers[0]));
+    fetched -= 1;
 }

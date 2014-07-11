@@ -2,6 +2,10 @@
 #include "usbserial.h"
 #include "util.h"
 
+/* #undef assert */
+/* #define assert usbserial_assert */
+
+/* #define DEBUG */
 #define MAX_RETRIES 5
 
 #define INITIAL 0
@@ -64,9 +68,7 @@ static void initialize_command(uint8_t cmd, uint32_t arg,
 {
     /* Wait if a previous transaction is pending. */
 
-    while (context.busy) {
-        wfi();
-    }
+    sleep_while (context.busy);
 
     /* Set up the command. */
 
@@ -128,7 +130,16 @@ __attribute__((interrupt ("IRQ"))) void spi0_isr(void)
 
         SPI0_PUSHR = ((CRC_CRC16 >> 8) | 1) | SPI_PUSHR_HEADER;
         context.phase = AWAIT_RESPONSE;
-        RESET_PIT(100);
+
+        /* Set a timeout for 500ms (100ms is specified), for read
+         * operations and a default 10ms for
+         * all other requests. */
+
+        if (context.command == 17) {
+            RESET_PIT(500);
+        } else {
+            RESET_PIT(100);
+        }
 
         break;
     case AWAIT_RESPONSE:
@@ -139,6 +150,13 @@ __attribute__((interrupt ("IRQ"))) void spi0_isr(void)
 
             if (context.command == 17 ||
                 context.command == 24) {
+                /* Keep the timer running for read commands as the
+                 * timeout is measured from the last bit of the
+                 * request till the data block start token. */
+
+                if (context.command == 24) {
+                    DISABLE_PIT();
+                }
 
                 if (i != 0x0) {
                     reset_command();
@@ -153,16 +171,14 @@ __attribute__((interrupt ("IRQ"))) void spi0_isr(void)
                     CRC_CTRL = 0;
 
                     context.phase = HANDLE_DATA_BLOCK;
-
-                    if (context.command == 17) {
-                        RESET_PIT(1000);
-                    }
                 }
             } else if (context.command == 0 ||
                        context.command == 16 ||
                        context.command == 41 ||
                        context.command == 55 ||
                        context.command == 59) {
+                DISABLE_PIT();
+
                 /* Nothing more to do for these commands. */
 
                 if (i != 0x0 && i != 0x1) {
@@ -175,6 +191,8 @@ __attribute__((interrupt ("IRQ"))) void spi0_isr(void)
             } else if (context.command == 8 ||
                        context.command == 13 ||
                        context.command == 58) {
+                DISABLE_PIT();
+
                 /* These commands have 4 more bytes of payload. */
 
                 if (i != 0x0 && i != 0x1) {
@@ -184,8 +202,6 @@ __attribute__((interrupt ("IRQ"))) void spi0_isr(void)
                     context.phase = RECEIVE_PAYLOAD;
                 }
             }
-
-            DISABLE_PIT();
         } else if (PIT_TIMED_OUT()) {
             reset_command();
             break;
@@ -248,6 +264,8 @@ __attribute__((interrupt ("IRQ"))) void spi0_isr(void)
             /* Wait for the start block token. */
 
             if ((i = SPI0_POPR) != 0xff) {
+                DISABLE_PIT();
+
                 /* usbserial_trace("token = %x\n", i); */
 
                 if(i == 0xfe) {
@@ -256,8 +274,6 @@ __attribute__((interrupt ("IRQ"))) void spi0_isr(void)
                     reset_command();
                     break;
                 }
-
-                DISABLE_PIT();
             } else if (PIT_TIMED_OUT()) {
                 reset_command();
                 break;
@@ -299,6 +315,11 @@ __attribute__((interrupt ("IRQ"))) void spi0_isr(void)
                 context.phase += 1;
             } else {
                 context.phase = RECEIVE_DATA_RESPONSE_TOKEN;
+
+                /* Set a busy timeout of 1s until end of card busy
+                 * (250ms is specified). */
+
+                RESET_PIT(1000);
             }
         } else if (context.command == 17) {
             /* Receive the checksum and check it against the on we
@@ -333,6 +354,9 @@ __attribute__((interrupt ("IRQ"))) void spi0_isr(void)
                     reset_command();
                     break;
                 }
+            } else if (PIT_TIMED_OUT()) {
+                reset_command();
+                break;
             }
 
             SPI0_PUSHR = 0xff | SPI_PUSHR_HEADER;
@@ -342,11 +366,16 @@ __attribute__((interrupt ("IRQ"))) void spi0_isr(void)
     case WAIT_WHILE_BUSY:
         if (context.command == 24) {
             if (SPI0_POPR != 0x0) {
+                DISABLE_PIT();
+
                 finalize_command();
                 break;
             }
 
             SPI0_PUSHR = 0xff | SPI_PUSHR_HEADER;
+        } else if (PIT_TIMED_OUT()) {
+            reset_command();
+            break;
         }
 
         break;
@@ -355,17 +384,20 @@ __attribute__((interrupt ("IRQ"))) void spi0_isr(void)
 
 static uint8_t send_command(uint8_t cmd, uint32_t arg)
 {
+#ifdef DEBUG
     usbserial_trace("cmd = %d, %x\n", cmd, arg);
+#endif
 
     initialize_command(cmd, arg, NULL);
 
     /* Wait for command to finish. */
 
-    while (context.busy) {
-        wfi();
-    }
+    sleep_while (context.busy);
 
+#ifdef DEBUG
     usbserial_trace("resp = %x\n", context.response);
+#endif
+
     return context.response;
 }
 
@@ -374,6 +406,7 @@ void sdio_initialize()
     int i;
 
     enable_interrupt(12);
+    prioritize_interrupt(12, 2);
 
     /* Enable the CRC module. */
 
@@ -427,7 +460,11 @@ void sdio_initialize()
      * this time so we wait until after we're initilized to speed up
      * the clock. */
 
-    while (send_command(55, 0), send_command(41, (1 << 30)) != 0x0);
+    RESET_PIT(3000);
+    while(send_command(55, 0), send_command(41, (1 << 30)) != 0x0) {
+        assert (!PIT_TIMED_OUT());
+    }
+    DISABLE_PIT();
 
     /* Clock the card at 24Mhz. */
 
@@ -443,13 +480,19 @@ void sdio_initialize()
 
 void sdio_read_single_block(int32_t addr, uint8_t *buffer)
 {
+#ifdef DEBUG
     usbserial_trace("cmd = 17, %x\n", addr);
+#endif
+
     initialize_command(17, ccs ? addr : addr << 9, buffer);
 }
 
 void sdio_write_single_block(int32_t addr, uint8_t *buffer)
 {
-    /* usbserial_trace("cmd = 24, %x\n", addr); */
+#ifdef DEBUG
+    usbserial_trace("cmd = 24, %x\n", addr);
+#endif
+
     initialize_command(24, ccs ? addr : addr << 9, buffer);
 }
 
@@ -457,15 +500,17 @@ uint8_t sdio_get_status()
 {
     uint8_t status;
 
+#ifdef DEBUG
     usbserial_trace("cmd = 13\n");
+#endif
 
     initialize_command(13, 0, &status);
 
-    while (context.busy) {
-        wfi();
-    }
+    sleep_while (context.busy);
 
+#ifdef DEBUG
     usbserial_trace("resp = %x, status = %x\n", context.response, status);
+#endif
 
     return status;
 }

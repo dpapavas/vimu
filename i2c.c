@@ -2,6 +2,7 @@
 #include <stdlib.h>
 
 #include "mk20dx128.h"
+#include "i2c.h"
 #include "usbserial.h"
 #include "util.h"
 
@@ -98,6 +99,7 @@ static struct {
     uint8_t *buffer;
     uint32_t length, read;
     uint8_t phase, slave, reg;
+    i2c_data_ready_callback callback;
 } context;
 
 __attribute__((interrupt ("IRQ"))) void pit0_isr(void)
@@ -171,12 +173,20 @@ __attribute__((interrupt ("IRQ"))) void i2c0_isr()
             } else {
                 DISABLE_PIT();
 
+                /* We're done, stop the i2c module. */
+
                 STOP();
                 TRANSMIT();
 
-                /* usbserial_printf("* %8x, %d, %d\n", context.buffer, context.length, context.read); */
+                /* usbserial_printf("* %8x, %d, %d\n",
+                   context.buffer, context.length, context.read); */
+
+                /* Write the last byte and call the callback. */
+
                 context.buffer[context.read ^ (!(context.length & 1))] = I2C0_D;
                 context.read += 1;
+
+                context.callback(I2C_READ_SUCCESS, context.read);
             }
         }
     } else {
@@ -189,10 +199,16 @@ __attribute__((interrupt ("IRQ"))) void i2c0_isr()
     return;
 
 error:
+    /* There was an error, stop the i2c module. */
+
     DISABLE_PIT();
     STOP();
 
     errors += 1;
+
+    /* Call the callback. */
+
+    context.callback(I2C_READ_ERROR, context.read);
 
     I2C0_S |= I2C_S_IICIF;
 
@@ -204,7 +220,8 @@ unsigned int i2c_bytes_read()
     return context.read;
 }
 
-int i2c_read_noblock(uint8_t slave, uint8_t reg, uint8_t *buffer, size_t n)
+int i2c_read_noblock(uint8_t slave, uint8_t reg, uint8_t *buffer, size_t n,
+                     i2c_data_ready_callback callback)
 {
     if (I2C0_S & I2C_S_BUSY) {
         return 1;
@@ -225,6 +242,7 @@ int i2c_read_noblock(uint8_t slave, uint8_t reg, uint8_t *buffer, size_t n)
     context.buffer = buffer;
     context.length = n;
     context.read = 0;
+    context.callback = callback;
 
     START();
     TRANSMIT();
@@ -327,13 +345,21 @@ int i2c_write(uint8_t slave, uint8_t reg, uint8_t value)
 
 void i2c_initialize()
 {
+    /* Set up the required interrupts:
+       I2C0 */
+
     enable_interrupt(11);
+    prioritize_interrupt(11, 1);
+
+    /* PIT0 */
+
     enable_interrupt(30);
+    prioritize_interrupt(30, 1);
 
     /* Enable the i2c and PORTB module clocks. */
 
     SIM_SCGC4 |= SIM_SCGC4_I2C0;
-    SIM_SCGC5 |= SIM_SCGC5_PORTB | SIM_SCGC5_PORTD;
+    SIM_SCGC5 |= SIM_SCGC5_PORTB;
 
     /* Enable i2c function for PTB2, PTB3. */
 

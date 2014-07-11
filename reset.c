@@ -12,7 +12,6 @@ extern int main (void);
 
 static __attribute__((naked, used)) void diagnose_fault (unsigned long *sp)
 {
-    turn_on_led();
     usbserial_printf("Hard fault\n"
                      "CFSR: %8x\tHFSR: %8x",
                      SCB_CFSR, SCB_HFSR);
@@ -30,7 +29,10 @@ static __attribute__((naked, used)) void diagnose_fault (unsigned long *sp)
                      sp[0], sp[1], sp[2], sp[3],
                      sp[4], sp[5], sp[6], sp[7]);
 
-    while(1);
+    while(1) {
+        delay_ms(75);
+        toggle_led();
+    }
 }
 
 static __attribute__((naked, noreturn, interrupt ("IRQ"))) void fault_isr(void)
@@ -198,10 +200,10 @@ void reset(void)
      * timing requirements here so it's best to disable interrupts
      * during the process. */
 
-    asm("cpsid i");
+    disable_interrupts();
     WDOG_UNLOCK = (uint16_t)0xc520;
     WDOG_UNLOCK = (uint16_t)0xd928;
-    asm("cpsie i");
+    enable_interrupts();
 
     WDOG_STCTRLH &= ~(WDOG_STCTRLH_WDOGEN);
 

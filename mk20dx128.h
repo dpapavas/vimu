@@ -3,10 +3,13 @@
 
 #include <stdint.h>
 
+#define PORTB_PCR0 (*((volatile uint32_t *)0x4004a000))
 #define PORTB_PCR1 (*((volatile uint32_t *)0x4004a004))
 #define PORTB_PCR2 (*((volatile uint32_t *)0x4004a008))
 #define PORTB_PCR3 (*((volatile uint32_t *)0x4004a00c))
 
+#define PORTC_PCR0 (*((volatile uint32_t *)0x4004b000))
+#define PORTC_PCR1 (*((volatile uint32_t *)0x4004b004))
 #define PORTC_PCR4 (*((volatile uint32_t *)0x4004b010))
 #define PORTC_PCR5 (*((volatile uint32_t *)0x4004b014))
 #define PORTC_PCR6 (*((volatile uint32_t *)0x4004b018))
@@ -14,8 +17,11 @@
 
 #define PORTD_PCR1 (*((volatile uint32_t *)0x4004c004))
 #define PORTD_PCR5 (*((volatile uint32_t *)0x4004c014))
+#define PORTD_PCR6 (*((volatile uint32_t *)0x4004c018))
 
-#define PORT_PCR_MUX(n) (uint32_t)(((n) & 0b111) << 8)
+#define PORT_PCR_MUX(n) (((uint32_t)(n) & 0b111) << 8)
+#define PORT_PCR_IRQC(n) (((uint32_t)(n) & 0b1111) << 16)
+#define PORT_PCR_ISF ((uint32_t)1 << 24)
 #define PORT_PCR_DSE ((uint32_t)1 << 6)
 #define PORT_PCR_ODE ((uint32_t)1 << 5)
 #define PORT_PCR_PFE ((uint32_t)1 << 4)
@@ -53,9 +59,9 @@
 #define MCG_C5 (*((volatile uint8_t *)0x40064004))
 #define MCG_C6 (*((volatile uint8_t *)0x40064005))
 #define MCG_S (*((volatile uint8_t *)0x40064006))
-#define MCG_C1_CLKS(n) (uint8_t)(((n) & 0b11) << 6)
-#define MCG_C1_FRDIV(n) (uint8_t)(((n) & 0b111) << 3)
-#define MCG_C2_RANGE0(n) (uint8_t)(((n) & 0b11) << 4)
+#define MCG_C1_CLKS(n) (((uint8_t)(n) & 0b11) << 6)
+#define MCG_C1_FRDIV(n) (((uint8_t)(n) & 0b111) << 3)
+#define MCG_C2_RANGE0(n) (((uint8_t)(n) & 0b11) << 4)
 #define MCG_C2_EREFS0 ((uint8_t)1 << 2)
 #define MCG_C5_PRDIV0(n)(uint8_t) ((n) & 0b11111)
 #define MCG_C6_PLLS ((uint8_t)1 << 6)
@@ -63,7 +69,7 @@
 #define MCG_S_OSCINIT0 ((uint8_t)1 << 1)
 #define MCG_S_IREFST ((uint8_t)1 << 4)
 #define MCG_S_CLKST_MASK (uint8_t)(0b11UL << 2)
-#define MCG_S_CLKST(n) (uint8_t)(((n) & 0b11) << 2)
+#define MCG_S_CLKST(n) (((uint8_t)(n) & 0b11) << 2)
 #define MCG_S_PLLST ((uint8_t)1 << 5)
 #define MCG_S_LOCK0 ((uint8_t)1 << 6)
 
@@ -81,15 +87,15 @@
 #define SIM_SCGC6_SPI0 ((uint32_t)1 << 12)
 #define SIM_SCGC6_PIT ((uint32_t)1 << 23)
 #define SIM_SCGC6_CRC ((uint32_t)1 << 18)
-#define SIM_CLKDIV1_OUTDIV1(n) (uint32_t)(((n) & 0b1111) << 28)
-#define SIM_CLKDIV1_OUTDIV2(n) (uint32_t)(((n) & 0b1111) << 24)
-#define SIM_CLKDIV1_OUTDIV4(n) (uint32_t)(((n) & 0b1111) << 16)
-#define SIM_CLKDIV2_USBDIV(n) (uint32_t)(((n) & 0b111) << 1)
+#define SIM_CLKDIV1_OUTDIV1(n) (((uint32_t)(n) & 0b1111) << 28)
+#define SIM_CLKDIV1_OUTDIV2(n) (((uint32_t)(n) & 0b1111) << 24)
+#define SIM_CLKDIV1_OUTDIV4(n) (((uint32_t)(n) & 0b1111) << 16)
+#define SIM_CLKDIV2_USBDIV(n) (((uint32_t)(n) & 0b111) << 1)
 #define SIM_CLKDIV2_USBFRAC ((uint32_t)1 << 0)
 #define SIM_SOPT2_USBSRC ((uint32_t)1 << 18)
 #define SIM_SOPT2_PLLFLLSEL ((uint32_t)1 << 16)
 #define SIM_SOPT2_TRACECLKSEL ((uint32_t)1 << 12)
-#define SIM_SOPT2_CLKOUTSEL(n) (uint32_t)(((n) & 0b111) << 5)
+#define SIM_SOPT2_CLKOUTSEL(n) (((uint32_t)(n) & 0b111) << 5)
 
 #define WDOG_STCTRLH (*(volatile uint16_t *)0x40052000)
 #define WDOG_UNLOCK (*(volatile uint16_t *)0x4005200e)
@@ -158,8 +164,8 @@
 #define I2C0_D *(volatile uint8_t *)0x40066004
 #define I2C0_C2 *(volatile uint8_t *)0x40066005
 #define I2C0_FLT *(volatile uint8_t *)0x40066006
-#define I2C_F_MULT(n) (uint8_t)(((n) & 0b11) << 6)
-#define I2C_F_ICR(n) (uint8_t)(((n) & 0b111111) << 0)
+#define I2C_F_MULT(n) (((uint8_t)(n) & 0b11) << 6)
+#define I2C_F_ICR(n) (((uint8_t)(n) & 0b111111) << 0)
 #define I2C_C1_IICEN ((uint8_t)1 << 7)
 #define I2C_C1_IICIE ((uint8_t)1 << 6)
 #define I2C_C1_MST ((uint8_t)1 << 5)
@@ -183,24 +189,24 @@
 #define SPI_MCR_DIS_TXF ((uint32_t)1 << 13)
 #define SPI_MCR_MDIS ((uint32_t)1 << 14)
 #define SPI_MCR_ROOE ((uint32_t)1 << 24)
-#define SPI_MCR_DCONF(n) (uint32_t)(((n) & 0b11) << 28)
+#define SPI_MCR_DCONF(n) (((uint32_t)(n) & 0b11) << 28)
 #define SPI_MCR_MSTR ((uint32_t)1 << 31)
 #define SPI0_TCR (*((volatile uint32_t *)0x4002c008))
 #define SPI_TCR_TCNT(n) (uint32_t)((n) << 16)
 #define SPI0_CTAR0 (*((volatile uint32_t *)0x4002c00c))
 #define SPI0_CTAR1 (*((volatile uint32_t *)0x4002c010))
-#define SPI_CTAR_BR(n) (uint32_t)(((n) & 0b1111) << 0)
-#define SPI_CTAR_DT(n) (uint32_t)(((n) & 0b1111) << 4)
-#define SPI_CTAR_ASC(n) (uint32_t)(((n) & 0b1111) << 8)
-#define SPI_CTAR_CSSCK(n) (uint32_t)(((n) & 0b1111) << 12)
-#define SPI_CTAR_PBR(n) (uint32_t)(((n) & 0b11) << 16)
-#define SPI_CTAR_PDT(n) (uint32_t)(((n) & 0b11) << 18)
-#define SPI_CTAR_PASC(n) (uint32_t)(((n) & 0b11) << 20)
-#define SPI_CTAR_PCSSCK(n) (uint32_t)(((n) & 0b11) << 22)
+#define SPI_CTAR_BR(n) (((uint32_t)(n) & 0b1111) << 0)
+#define SPI_CTAR_DT(n) (((uint32_t)(n) & 0b1111) << 4)
+#define SPI_CTAR_ASC(n) (((uint32_t)(n) & 0b1111) << 8)
+#define SPI_CTAR_CSSCK(n) (((uint32_t)(n) & 0b1111) << 12)
+#define SPI_CTAR_PBR(n) (((uint32_t)(n) & 0b11) << 16)
+#define SPI_CTAR_PDT(n) (((uint32_t)(n) & 0b11) << 18)
+#define SPI_CTAR_PASC(n) (((uint32_t)(n) & 0b11) << 20)
+#define SPI_CTAR_PCSSCK(n) (((uint32_t)(n) & 0b11) << 22)
 #define SPI_CTAR_LSBFE ((uint32_t)1 << 24)
 #define SPI_CTAR_CPHA ((uint32_t)1 << 25)
 #define SPI_CTAR_CPOL ((uint32_t)1 << 26)
-#define SPI_CTAR_FMSZ(n) (uint32_t)(((n) & 0b1111) << 27)
+#define SPI_CTAR_FMSZ(n) (((uint32_t)(n) & 0b1111) << 27)
 #define SPI_CTAR_DBR ((uint32_t)1 << 31)
 #define SPI0_SR (*((volatile uint32_t *)0x4002c02c))
 #define SPI_SR_RFDF ((uint32_t)1 << 17)
@@ -209,7 +215,7 @@
 #define SPI0_PUSHR (*((volatile uint32_t *)0x4002c034))
 #define SPI_PUSHR_PCS_MASK ((uint32_t)0b111111 << 16)
 #define SPI_PUSHR_PCS(n) ((~((uint32_t)1 << (16 + n))) & SPI_PUSHR_PCS_MASK)
-#define SPI_PUSHR_CTAS(n) (uint32_t)(((n) & 0b111) << 28)
+#define SPI_PUSHR_CTAS(n) (((uint32_t)(n) & 0b111) << 28)
 #define SPI0_POPR (*((volatile uint32_t *)0x4002c038))
 #define SPI0_RSER (*((volatile uint32_t *)0x4002c030))
 #define SPI_RSER_TCF_RE ((uint32_t)1 << 31)
@@ -230,11 +236,32 @@
 #define NVIC_ICER(n) (*((volatile uint32_t *)(0xe000e180 + 4 * (n))))
 #define NVIC_ISPR(n) (*((volatile uint32_t *)(0xe000e200 + 4 * (n))))
 #define NVIC_ICPR(n) (*((volatile uint32_t *)(0xe000e280 + 4 * (n))))
-#define NVIC_IPR8 (*((volatile uint32_t *)0xe000e420))
+#define NVIC_IPR(n)  (*((volatile uint32_t *)(0xe000e400 + 4 * (n))))
 #define enable_interrupt(n) (NVIC_ISER(n / 32) |= ((uint32_t)1 << (n % 32)))
 #define disable_interrupt(n) (NVIC_ICER(n / 32) |= ((uint32_t)1 << (n % 32)))
 #define pend_interrupt(n) (NVIC_ISPR(n / 32) |= ((uint32_t)1 << (n % 32)))
 #define unpend_interrupt(n) (NVIC_ICPR(n / 32) |= ((uint32_t)1 << (n % 32)))
+#define prioritize_interrupt(n, p)                                      \
+    {                                                                   \
+        int i = n / 4, j = 8 * (n % 4) + 4;                             \
+                                                                        \
+        NVIC_IPR(i) = (NVIC_IPR(i) & ~((uint32_t)0xf << j)) | ((p & 0xf) << j); \
+    }
+
+#define sleep() asm("wfi")
+#define sleep_if(cond) asm volatile("cmp %0, #0\n\t"                    \
+                                    "it ne\n\t"                         \
+                                    "wfine" : : "r" (cond) : "cc")
+#define disable_interrupts() asm("cpsid i")
+#define enable_interrupts() asm("cpsie i")
+#define sleep_while(cond)                               \
+    {                                                   \
+        do {                                            \
+            disable_interrupts();                       \
+            sleep_if (cond);                            \
+            enable_interrupts();                        \
+        } while(cond);                                  \
+    }
 
 #define SCB_CFSR (*((volatile uint32_t *)(0xe000ed28)))
 #define SCB_HFSR (*((volatile uint32_t *)(0xe000ed2c)))
@@ -242,8 +269,6 @@
 #define SCB_BFAR (*((volatile uint32_t *)(0xe000ed38)))
 #define SCB_CFSR_MMARVALID ((uint32_t)1 << 7)
 #define SCB_CFSR_BFARVALID ((uint32_t)1 << 15)
-
-#define wfi() asm("wfi")
 
 #define CRC_CRC32 *(volatile uint32_t *)0x40032000
 #define CRC_CRC16 *(volatile uint16_t *)0x40032000

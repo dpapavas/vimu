@@ -92,62 +92,70 @@ static uint8_t device_descriptor[] = {
 #define CONFIGURATION_DESCRIPTOR_SIZE (9+9+5+5+4+5+7+9+7+7)
 static uint8_t configuration_descriptor[CONFIGURATION_DESCRIPTOR_SIZE] = {
     /* Configuration descriptor. */
+
     9,                                  /* bLength */
     2,                                  /* bDescriptorType */
     LSB(CONFIGURATION_DESCRIPTOR_SIZE), /* wTotalLength */
     MSB(CONFIGURATION_DESCRIPTOR_SIZE),
-    1,					/* bNumInterfaces */
-    1,					/* bConfigurationValue */
-    0,					/* iConfiguration */
+    1,                                  /* bNumInterfaces */
+    1,                                  /* bconfigurationvalue */
+    0,                                  /* iConfiguration */
     0xC0,                               /* bmAttributes */
-    50,					/* bMaxPower */
-    
+    50,                                 /* bMaxPower */
+
     /* Interface descriptor. */
-    9,					/* bLength */
-    4,					/* bDescriptorType */
-    0,					/* bInterfaceNumber */
-    0,					/* bAlternateSetting */
-    1,					/* bNumEndpoints */
-    0x02,       /* bInterfaceClass (2 = Communication Interface Class) */
-    0x02,       /* bInterfaceSubClass (2 = ACM subclass) */
-    0x01,       /* bInterfaceProtocol */
-    0,          /* iInterface */
-    
+
+    9,       /* bLength */
+    4,       /* bDescriptorType */
+    0,       /* bInterfaceNumber */
+    0,       /* bAlternateSetting */
+    1,       /* bNumEndpoints */
+    0x02,    /* bInterfaceClass (2 = Communication Interface Class) */
+    0x02,    /* bInterfaceSubClass (2 = ACM subclass) */
+    0x01,    /* bInterfaceProtocol */
+    0,       /* iInterface */
+
     /* CDC Header Functional Descriptor. */
-    5,					/* bFunctionLength */
-    0x24,                               /* bDescriptorType */
-    0x00,                               /* bDescriptorSubtype */
-    0x10, 0x01,				/* bcdCDC */
-    
-    /* Call Management Functional Descriptor/ */
-    5,					/* bFunctionLength */
-    0x24,                               /* bDescriptorType */
-    0x01,                               /* bDescriptorSubtype */
-    0x01,                               /* bmCapabilities */
-    1,					/* bDataInterface */
-    
+
+    5,                          /* bFunctionLength */
+    0x24,                       /* bDescriptorType */
+    0x00,                       /* bDescriptorSubtype */
+    0x10, 0x01,                 /* bcdCDC */
+
+    /* Call Management Functional Descriptor */
+
+    5,                          /* bFunctionLength */
+    0x24,                       /* bDescriptorType */
+    0x01,                       /* bDescriptorSubtype */
+    0x01,                       /* bmCapabilities */
+    1,                          /* bDataInterface */
+
     /* Abstract Control Management Functional Descriptor. */
-    4,					/* bFunctionLength */
-    0x24,                               /* bDescriptorType */
-    0x02,                               /* bDescriptorSubtype */
-    0x06,                               /* bmCapabilities */
-    
+
+    4,                          /* bFunctionLength */
+    0x24,                       /* bDescriptorType */
+    0x02,                       /* bDescriptorSubtype */
+    0x06,                       /* bmCapabilities */
+
     /* Union Functional Descriptor. */
-    5,					/* bFunctionLength */
-    0x24,                               /* bDescriptorType */
-    0x06,                               /* bDescriptorSubtype */
-    0,					/* bMasterInterface */
-    1,					/* bSlaveInterface0 */
-    
+
+    5,                          /* bFunctionLength */
+    0x24,                       /* bDescriptorType */
+    0x06,                       /* bDescriptorSubtype */
+    0,                          /* bMasterInterface */
+    1,                          /* bSlaveInterface0 */
+
     /* Endpoint descriptor. */
-    7,					/* bLength */
-    5,                                  /* bDescriptorType */
-    COM_ENDPOINT | 0x80,                /* bEndpointAddress */
-    0x03,                               /* bmAttributes (0x03=intr) */
-    COM_BUFFER_SIZE, 0,                 /* wMaxPacketSize */
+
+    7,                          /* bLength */
+    5,                          /* bDescriptorType */
+    COM_ENDPOINT | 0x80,        /* bEndpointAddress */
+    0x03,                       /* bmAttributes (0x03=intr) */
+    COM_BUFFER_SIZE, 0,         /* wMaxPacketSize */
     64,
 
     /* Interface descriptor. */
+
     9,               /* bLength */
     4,               /* bDescriptorType */
     1,               /* bInterfaceNumber */
@@ -159,6 +167,7 @@ static uint8_t configuration_descriptor[CONFIGURATION_DESCRIPTOR_SIZE] = {
     0,
 
     /* Endpoint descriptor. */
+
     7,                          /* bLength */
     5,                          /* bDescriptorType */
     DATA_ENDPOINT,              /* bEndpointAddress */
@@ -167,6 +176,7 @@ static uint8_t configuration_descriptor[CONFIGURATION_DESCRIPTOR_SIZE] = {
     0,
 
     /* Endpoint descriptor. */
+
     7,                          /* bLength */
     5,                          /* bDescriptorType */
     DATA_ENDPOINT | 0x80,       /* bEndpointAddress */
