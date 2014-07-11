@@ -237,10 +237,10 @@
 #define NVIC_ISPR(n) (*((volatile uint32_t *)(0xe000e200 + 4 * (n))))
 #define NVIC_ICPR(n) (*((volatile uint32_t *)(0xe000e280 + 4 * (n))))
 #define NVIC_IPR(n)  (*((volatile uint32_t *)(0xe000e400 + 4 * (n))))
-#define enable_interrupt(n) (NVIC_ISER(n / 32) |= ((uint32_t)1 << (n % 32)))
-#define disable_interrupt(n) (NVIC_ICER(n / 32) |= ((uint32_t)1 << (n % 32)))
-#define pend_interrupt(n) (NVIC_ISPR(n / 32) |= ((uint32_t)1 << (n % 32)))
-#define unpend_interrupt(n) (NVIC_ICPR(n / 32) |= ((uint32_t)1 << (n % 32)))
+#define enable_interrupt(n) (NVIC_ISER(n / 32) = ((uint32_t)1 << (n % 32)))
+#define disable_interrupt(n) (NVIC_ICER(n / 32) = ((uint32_t)1 << (n % 32)))
+#define pend_interrupt(n) (NVIC_ISPR(n / 32) = ((uint32_t)1 << (n % 32)))
+#define unpend_interrupt(n) (NVIC_ICPR(n / 32) = ((uint32_t)1 << (n % 32)))
 #define prioritize_interrupt(n, p)                                      \
     {                                                                   \
         int i = n / 4, j = 8 * (n % 4) + 4;                             \

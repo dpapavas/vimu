@@ -80,9 +80,12 @@
 #define IRB 11
 #define IRC 12
 
-void power_sensors_down();
-void power_sensors_up();
+#define LINE_WIDTH 10
+
+typedef void (*sensors_data_ready_callback)(float *line);
+
 int sensors_are_online();
 void read_sensor_values(int16_t *line);
+void sensors_set_callback(sensors_data_ready_callback new_callback);
 
 #endif

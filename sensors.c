@@ -10,13 +10,13 @@
 /* #define assert usbserial_assert */
 
 #define MAX_RETRIES 5
-#define LINE_WIDTH 10
 
 static int16_t buffers[2][LINE_WIDTH];
 static uint8_t online, r = 0, w = 0;
 static volatile uint8_t fetched, available;
 
 static void fetch_more_data();
+static sensors_data_ready_callback callback;
 
 static void data_ready(int status, int count)
 {
@@ -28,6 +28,47 @@ static void data_ready(int status, int count)
 
     if (available > 0) {
         fetch_more_data();
+    }
+
+    if(callback) {
+        float line[10];
+        int16_t *b;
+
+        b = buffers[r];
+
+
+        /* Acceleration. */
+
+        {
+            static const float gain[] = {1.0 / 16384, 1.0 / 8192,
+                                         1.0 / 4096, 1.0 / 2048};
+
+            line[0] = (float)b[0] * gain[ACCEL_FSR];
+            line[1] = (float)b[1] * gain[ACCEL_FSR];
+            line[2] = (float)b[2] * gain[ACCEL_FSR];
+        }
+
+        /* Angular rate. */
+
+        {
+            static const float gain[] = {1.0 / 131, 1.0 / 65.5,
+                                         1.0 / 32.8, 1.0 / 16.4};
+
+            line[3] = (float)b[4] * gain[GYRO_FSR];
+            line[4] = (float)b[5] * gain[GYRO_FSR];
+            line[5] = (float)b[6] * gain[GYRO_FSR];
+        }
+
+        {
+            line[6] = (float)b[7];
+            line[7] = (float)b[8];
+            line[8] = (float)b[9];
+        }
+
+        line[9] = (float)b[3];
+
+        callback(line);
+        fetched -= 1;
     }
 }
 
@@ -67,6 +108,8 @@ __attribute__((interrupt ("IRQ"))) void portb_isr(void)
         if (available == 1) {
             fetch_more_data();
         }
+    } else {
+        assert(0);
     }
 }
 
@@ -89,20 +132,30 @@ static void configure_register(uint8_t slave, uint8_t reg, uint8_t value)
     assert(i < MAX_RETRIES);
 }
 
-void power_sensors_down()
+static void power_down()
 {
-    /* Pull PB0 low to power down the sensors. */
+    assert(online);
 
-    GPIOD_PCOR |= ((uint32_t)1 << 6);
+    PORTB_PCR0 = PORT_PCR_MUX(0);
+    sleep_while (i2c_is_busy());
+
+    disable_interrupt(41);
+
+    /* Pull PC1 low to power down the sensors. */
+
+    PORTD_PCR5 = PORT_PCR_MUX(0);
+    PORTC_PCR1 = PORT_PCR_MUX(0);
 
     online = 0;
 }
 
-void power_sensors_up()
+static void power_up()
 {
+    assert(!online);
+
     SIM_SCGC5 |= SIM_SCGC5_PORTD | SIM_SCGC5_PORTC;
 
-    /* Configure PB1 and and PD5 as outputs and pull them high and low
+    /* Configure PC1 and and PD5 as outputs and pull them high and low
      * respectively to power the sensors. */
 
     PORTD_PCR5 = PORT_PCR_MUX(1) | PORT_PCR_DSE;
@@ -213,8 +266,21 @@ int sensors_are_online()
 
 void read_sensor_values(int16_t *line)
 {
+    assert(!callback);
+
     sleep_while (fetched == 0);
 
     memcpy (line, buffers[r], sizeof(buffers[0]));
     fetched -= 1;
+}
+
+void sensors_set_callback(sensors_data_ready_callback new_callback)
+{
+    callback = new_callback;
+
+    if (new_callback) {
+        power_up();
+    } else {
+        power_down();
+    }
 }

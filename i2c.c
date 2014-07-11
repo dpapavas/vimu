@@ -60,8 +60,8 @@
 
 #define RECEIVE() I2C0_C1 &= ~I2C_C1_TX
 #define TRANSMIT() I2C0_C1 |= I2C_C1_TX
-#define START() assert(!(I2C0_S & I2C_S_BUSY)); I2C0_C1 |= I2C_C1_MST; while(!(I2C0_S & I2C_S_BUSY)) /* toggle_led() */
-#define STOP() assert(I2C0_S & I2C_S_BUSY); I2C0_C1 &= ~I2C_C1_MST; while(I2C0_S & I2C_S_BUSY) /* toggle_led() */
+#define START() assert(!(I2C0_S & I2C_S_BUSY)); I2C0_C1 |= I2C_C1_MST; while(!(I2C0_S & I2C_S_BUSY))
+#define STOP() assert(I2C0_S & I2C_S_BUSY); I2C0_C1 &= ~I2C_C1_MST; while(I2C0_S & I2C_S_BUSY)
 #define REPEATED_START() I2C0_C1 |= I2C_C1_RSTA
 
 #define WRITE(b)                                \

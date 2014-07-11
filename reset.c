@@ -277,9 +277,6 @@ void reset(void)
 
     __libc_init_array();
 
-    usb_initialize();
-    i2c_initialize();
-
     main();
 
     while(1);

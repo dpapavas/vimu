@@ -1,8 +1,7 @@
 #ifndef _UTIL_H_
 #define _UTIL_H_
 
-#include "usbserial.h"
-
+#ifndef USBSERIAL_ASSERT
 #define assert(cond)                                            \
     if(!(cond)) {                                               \
         while(1) {                                              \
@@ -10,6 +9,10 @@
             toggle_led();                                       \
         }                                                       \
     }
+#else
+#include "usbserial.h"
+#define assert usbserial_assert
+#endif
 
 #define cycles_in_ms(t) ((t) * (F_CPU / 1000))
 #define cycles_in_us(t) ((t) * (F_CPU / 1000000))

@@ -2,9 +2,6 @@
 #include "usbserial.h"
 #include "util.h"
 
-/* #undef assert */
-/* #define assert usbserial_assert */
-
 /* #define DEBUG */
 #define MAX_RETRIES 5
 
@@ -64,7 +61,7 @@ static void finalize_command()
 }
 
 static void initialize_command(uint8_t cmd, uint32_t arg,
-                                     uint8_t *buffer)
+                               uint8_t *buffer)
 {
     /* Wait if a previous transaction is pending. */
 
