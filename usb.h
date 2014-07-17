@@ -49,13 +49,15 @@
 #define DESCRIPTOR_TYPE_DEVICE_CONFIGURATION 2
 #define DESCRIPTOR_TYPE_DEVICE_QUALIFIER 6
 
-#define ENDPOINT_DATA1 (1 << 0)
-#define ENDPOINT_ODD (1 << 1)
-
 #define PHASE_SETUP 0
 #define PHASE_DATA_IN 1
 #define PHASE_DATA_OUT 2
-#define PHASE_STATUS 3
+#define PHASE_STATUS_IN 3
+#define PHASE_STATUS_OUT 4
+#define PHASE_COMPLETE 5
+
+#define oddbit(endpoint, tx) (oddbits & ((1 << (2 * (endpoint) + (tx)))))
+#define toggle_oddbit(endpoint, tx) oddbits ^= ((1 << (2 * (endpoint) + (tx))))
 
 #define bdt_descriptor(count, data1)                                    \
     (((data1) ? BDT_DESC_DATA1 : 0) | BDT_DESC_DTS |                    \
