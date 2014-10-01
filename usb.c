@@ -1,29 +1,33 @@
 #include <stdio.h>
-#include <stdlib.h>
-#include <stdarg.h>
 #include <string.h>
-#include <math.h>
 
 #include "mk20dx128.h"
 #include "util.h"
 #include "usb.h"
+#include "usbserial.h"
 
 __attribute__ ((section(".usbdata.bdt")))
 static bdtentry_t bdt[ENDPOINTS_N * 4];
 
-__attribute__ ((aligned(4)))
-static uint8_t ep0_setup[8], ep2_rx[2][DATA_BUFFER_SIZE], ep2_tx[2][DATA_BUFFER_SIZE];
+static struct {
+    __attribute__ ((aligned(4)))
+    uint8_t setup[8];
+
+    __attribute__ ((aligned(4)))
+    uint8_t notification[2][NOTIFICATION_BUFFER_SIZE];
+
+    __attribute__ ((aligned(4)))
+    uint8_t serial[4][DATA_BUFFER_SIZE];
+}  buffers;
 
 static struct {
     uint8_t *data;
     uint16_t length;
-} pending;
+} pending, buffered[2];
 
 static uint8_t oddbits;
 static uint8_t address, phase;
 static volatile uint8_t configuration;
-static volatile uint8_t line_state;
-static volatile uint8_t line_coding[7];
 
 static inline int process_setup_packet(uint16_t request, uint16_t value,
                                        uint16_t index, uint16_t length)
@@ -44,7 +48,7 @@ static inline int process_setup_packet(uint16_t request, uint16_t value,
         case DESCRIPTOR_TYPE_DEVICE_QUALIFIER:
             /* GET_DESCRIPTOR for DEVICE QUALIFIER. */
 
-            USB0_ENDPT(0) |= USB_ENDPT_EPSTALL;
+            USB0_ENDPT(CONTROL_ENDPOINT) |= USB_ENDPT_EPSTALL;
 
             return PHASE_COMPLETE;
 
@@ -60,7 +64,7 @@ static inline int process_setup_packet(uint16_t request, uint16_t value,
         /* We've received a request for an unimplemented device
          * descriptor, so we just stall. */
 
-        USB0_ENDPT(0) |= USB_ENDPT_EPSTALL;
+        USB0_ENDPT(CONTROL_ENDPOINT) |= USB_ENDPT_EPSTALL;
 
         return PHASE_COMPLETE;
 
@@ -79,7 +83,7 @@ static inline int process_setup_packet(uint16_t request, uint16_t value,
         pending.length = 0;
 
         if (value != 1) {
-            USB0_ENDPT(0) |= USB_ENDPT_EPSTALL;
+            USB0_ENDPT(CONTROL_ENDPOINT) |= USB_ENDPT_EPSTALL;
 
             return PHASE_COMPLETE;
         } else {
@@ -87,20 +91,24 @@ static inline int process_setup_packet(uint16_t request, uint16_t value,
 
             /* Initialize endpoint 1. */
 
-            USB0_ENDPT(1) = USB_ENDPT_EPTXEN | USB_ENDPT_EPHSHK;
+            USB0_ENDPT(NOTIFICATION_ENDPOINT) = (USB_ENDPT_EPTXEN |
+                                                 USB_ENDPT_EPHSHK);
 
             for (i = 0 ; i < 2 ; i += 1) {
                 bdtentry_t *t;
 
-                t = bdt_entry(COM_ENDPOINT, 1, i);
-                t->buffer = NULL;
+                t = bdt_entry(NOTIFICATION_ENDPOINT, 1, i);
+                t->buffer = buffers.notification[i];
                 t->desc = bdt_descriptor (0, 0);
             }
 
+            reset_oddbit(NOTIFICATION_ENDPOINT, 0);
+            reset_oddbit(NOTIFICATION_ENDPOINT, 1);
+
             /* Initialize endpoint 2. */
 
-            USB0_ENDPT(2) = (USB_ENDPT_EPRXEN | USB_ENDPT_EPTXEN |
-                             USB_ENDPT_EPHSHK);
+            USB0_ENDPT(DATA_ENDPOINT) = (USB_ENDPT_EPRXEN | USB_ENDPT_EPTXEN |
+                                         USB_ENDPT_EPHSHK);
 
             for (i = 0 ; i < 2 ; i += 1) {
                 bdtentry_t *r, *t;
@@ -108,12 +116,30 @@ static inline int process_setup_packet(uint16_t request, uint16_t value,
                 r = bdt_entry(DATA_ENDPOINT, 0, i);
                 t = bdt_entry(DATA_ENDPOINT, 1, i);
 
-                r->buffer = ep2_rx[i];
-                t->buffer = ep2_tx[i];
+                r->buffer = buffers.serial[i];
+                t->buffer = buffers.serial[2 + i];
 
-                r->desc = bdt_descriptor (0, 0);
+                /* Prime the input BDT entries. In the case of data
+                 * endpont input transmissions we use the oddbits to
+                 * keep track of the BDT entry we should read next, so
+                 * don't toggle here. */
+
+                r->desc = bdt_descriptor (DATA_BUFFER_SIZE, i);
+                r->desc |= BDT_DESC_OWN;
                 t->desc = bdt_descriptor (0, 0);
             }
+
+            /* Initialize the buffer pointers. */
+
+            reset_oddbit(DATA_ENDPOINT, 0);
+
+            buffered[0].data = NULL;
+            buffered[0].length = 0;
+
+            reset_oddbit(DATA_ENDPOINT, 1);
+
+            buffered[1].data = NULL;
+            buffered[1].length = DATA_BUFFER_SIZE;
 
             configuration = (uint8_t)value;
         }
@@ -153,43 +179,9 @@ static inline int process_setup_packet(uint16_t request, uint16_t value,
     /* We've received an unimplemented request, so we
      * just stall. */
 
-    USB0_ENDPT(0) |= USB_ENDPT_EPSTALL;
+    USB0_ENDPT(CONTROL_ENDPOINT) |= USB_ENDPT_EPSTALL;
 
     return PHASE_COMPLETE;
-}
-
-static void handle_data_transfer (uint8_t status)
-{
-    bdtentry_t *entry;
-
-    entry = &(bdt[status >> 2]);
-
-    switch (BDT_DESC_PID(entry->desc)) {
-    case BDT_PID_IN:
-        break;
-    case BDT_PID_OUT:
-        break;
-    default:
-        USB0_ENDPT(2) |= USB_ENDPT_EPSTALL;
-    }
-}
-
-static void handle_interrupt_transfer (uint8_t status)
-{
-    bdtentry_t *entry;
-
-    entry = &(bdt[status >> 2]);
-
-    switch (BDT_DESC_PID(entry->desc)) {
-    case BDT_PID_IN:
-        assert(0);
-        break;
-    case BDT_PID_OUT:
-        assert(0);
-        break;
-    default:
-        USB0_ENDPT(1) |= USB_ENDPT_EPSTALL;
-    }
 }
 
 static void handle_control_transfer (uint8_t status)
@@ -364,7 +356,7 @@ static void handle_control_transfer (uint8_t status)
         in = bdt_entry(CONTROL_ENDPOINT, 0, oddbit(CONTROL_ENDPOINT, 0));
         assert (!(in->desc & BDT_DESC_OWN));
 
-        in->buffer = (void *)ep0_setup;
+        in->buffer = (void *)buffers.setup;
         in->desc = bdt_descriptor (8, 0);
         in->desc |= BDT_DESC_OWN;
 
@@ -382,9 +374,15 @@ __attribute__((interrupt ("IRQ"))) void usb_isr()
         /* Reset the even/odd BDT toggle bits. */
 
         USB0_CTL |= USB_CTL_ODDRST;
+
         phase = PHASE_SETUP;
-        oddbits = 0;
         address = 0;
+
+        pending.data = NULL;
+        pending.length = 0;
+
+        reset_oddbit(CONTROL_ENDPOINT, 0);
+        reset_oddbit(CONTROL_ENDPOINT, 1);
 
         /* Initialize the BDT entries for endpoint 0. */
 
@@ -398,7 +396,7 @@ __attribute__((interrupt ("IRQ"))) void usb_isr()
                 /* Prepare a buffer for the first setup packet (setup
                  * packets are always DATA0). */
 
-                r->buffer = ep0_setup;
+                r->buffer = buffers.setup;
                 r->desc = bdt_descriptor (8, 0);
                 r->desc |= BDT_DESC_OWN;
 
@@ -415,7 +413,8 @@ __attribute__((interrupt ("IRQ"))) void usb_isr()
         /* Activate endpoint 0, reset all error flags and reset
          * address to 0. */
 
-        USB0_ENDPT(0) = USB_ENDPT_EPRXEN | USB_ENDPT_EPTXEN | USB_ENDPT_EPHSHK;
+        USB0_ENDPT(CONTROL_ENDPOINT) = (USB_ENDPT_EPRXEN | USB_ENDPT_EPTXEN |
+                                        USB_ENDPT_EPHSHK);
         USB0_ERRSTAT = ~0;
         USB0_ADDR = 0;
 
@@ -455,9 +454,8 @@ __attribute__((interrupt ("IRQ"))) void usb_isr()
         n = USB_STAT_ENDP(status);
 
         switch (n) {
-        case 0: handle_control_transfer(status); break;
-        case 1: handle_interrupt_transfer(status); break;
-        case 2: handle_data_transfer(status); break;
+        case CONTROL_ENDPOINT: handle_control_transfer(status); break;
+        case NOTIFICATION_ENDPOINT: case DATA_ENDPOINT: break;
         default:
             USB0_ENDPT(n) |= USB_ENDPT_EPSTALL;
         }
@@ -530,261 +528,130 @@ void usb_await_enumeration()
     sleep_while(configuration == 0);
 }
 
-void usbserial_await_dtr()
+int usb_interrupt(uint8_t *buffer, int n)
 {
-    sleep_while(!(line_state & LINE_STATE_DTR));
+    bdtentry_t *out;
+
+    out = bdt_entry(NOTIFICATION_ENDPOINT, 1,
+                    oddbit(NOTIFICATION_ENDPOINT, 1));
+    sleep_while (out->desc & BDT_DESC_OWN);
+
+    memcpy(out->buffer, buffer, n);
+
+    out->desc = bdt_descriptor (n, oddbit(NOTIFICATION_ENDPOINT, 1));
+    out->desc |= BDT_DESC_OWN;
+
+    toggle_oddbit (NOTIFICATION_ENDPOINT, 1);
+
+    return 0;
 }
 
-int usbserial_is_dtr()
-{
-    return line_state & LINE_STATE_DTR;
-}
-
-void usbserial_await_rts()
-{
-    sleep_while(!(line_state & LINE_STATE_RTS));
-}
-
-int usbserial_is_rts()
-{
-    return line_state & LINE_STATE_RTS;
-}
-
-int usbserial_read(char *buffer)
+int usb_read(char *buffer, int n)
 {
     volatile bdtentry_t *in;
+    int m;
 
     if (configuration == 0) {
         return -1;
     }
 
-    in = bdt_entry(DATA_ENDPOINT, 0, oddbit(DATA_ENDPOINT, 0));
-    assert (!(in->desc & BDT_DESC_OWN));
+    /* Fetch more data if needed. */
 
-    in->desc = bdt_descriptor (DATA_BUFFER_SIZE, oddbit(DATA_ENDPOINT, 0));
-    in->desc |= BDT_DESC_OWN;
+    if (buffered[0].length == 0) {
+        in = bdt_entry(DATA_ENDPOINT, 0, oddbit(DATA_ENDPOINT, 0));
+        sleep_while(in->desc & BDT_DESC_OWN);
 
-    toggle_oddbit(DATA_ENDPOINT, 0);
+        buffered[0].data = in->buffer;
+        buffered[0].length = BDT_DESC_BYTE_COUNT(in->desc);
 
-    sleep_while (in->desc & BDT_DESC_OWN);
+        /* usbserial_trace("%d, %d\n", readbit(), buffered[0].length); */
+    }
 
-    assert (BDT_DESC_BYTE_COUNT(in->desc) > 0);
+    /* Copy data to output buffer. */
 
-    usbserial_write(in->buffer, BDT_DESC_BYTE_COUNT(in->desc), 1);
+    m = buffered[0].length > n ? n : buffered[0].length;
 
-    return 0;
+    memcpy(buffer, buffered[0].data, m);
+
+    buffered[0].data += m;
+    buffered[0].length -= m;
+
+    /* Release the BDT once we're done. */
+
+    if (buffered[0].length == 0) {
+        in = bdt_entry(DATA_ENDPOINT, 0, oddbit(DATA_ENDPOINT, 0));
+        assert(!(in->desc & BDT_DESC_OWN));
+
+        in->desc = bdt_descriptor (DATA_BUFFER_SIZE,
+                                   oddbit(DATA_ENDPOINT, 0));
+        in->desc |= BDT_DESC_OWN;
+
+        toggle_oddbit(DATA_ENDPOINT, 0);
+    }
+
+    return m;
 }
 
-int usbserial_write(const char *s, int n, int flush)
+int usb_write(const char *s, int n, int flush)
 {
-    static uint8_t fill[2];
     volatile bdtentry_t *out;
-    int i, o, m;
+    int m;
 
-    if (configuration == 0 || !(line_state & LINE_STATE_DTR)) {
+    if (configuration == 0) {
         return -1;
     }
 
-    i = oddbit (DATA_ENDPOINT, 1);
+    /* If the current buffer has been filled and flushed to the USB
+     * module fetch a new one. */
+
+    if (buffered[1].length == DATA_BUFFER_SIZE) {
+        out = bdt_entry(DATA_ENDPOINT, 1, oddbit (DATA_ENDPOINT, 1));
+
+        buffered[1].data = out->buffer;
+        buffered[1].length = 0;
+
+        sleep_while (out->desc & BDT_DESC_OWN);
+    }
+
+    /* Break the write up if it's too large to fit in the current
+     * buffer. */
 
     if (n > 0) {
-        o = fill[i];
-        m = DATA_BUFFER_SIZE - o < n ? DATA_BUFFER_SIZE - o : n;
+        m = DATA_BUFFER_SIZE - buffered[1].length < n ?
+            DATA_BUFFER_SIZE - buffered[1].length : n;
     } else {
         m = 0;
     }
 
-    out = bdt_entry(DATA_ENDPOINT, 1, i);
-    sleep_while (out->desc & BDT_DESC_OWN);
+    assert(m > 0 || n == 0);
 
     if (m > 0) {
-        memcpy(out->buffer + o, s, m);
-        fill[i] += m;
+        memcpy(buffered[1].data, s, m);
+
+        buffered[1].data += m;
+        buffered[1].length += m;
     }
 
-    if (flush || fill[i] == DATA_BUFFER_SIZE) {
-        out->desc = bdt_descriptor (fill[i], i);
+    /* Send the current buffer to the USB module. */
+
+    if (flush || buffered[1].length == DATA_BUFFER_SIZE) {
+        out = bdt_entry(DATA_ENDPOINT, 1, oddbit (DATA_ENDPOINT, 1));
+        assert(!(out->desc & BDT_DESC_OWN));
+
+        out->desc = bdt_descriptor (buffered[1].length,
+                                    oddbit (DATA_ENDPOINT, 1));
         out->desc |= BDT_DESC_OWN;
 
         toggle_oddbit (DATA_ENDPOINT, 1);
-        fill[i] = 0;
+    }
+
+    if (flush) {
+        buffered[1].length = DATA_BUFFER_SIZE;
     }
 
     if (n > m) {
-        return usbserial_write(s + m, n - m, flush);
+        return usb_write(s + m, n - m, flush);
     } else {
         return 0;
     }
-}
-
-/* Estimate the number of digits in an integer of type t.  The number
- * of digits is equal to log_radix (maxvalue(t)) = log_radix(2 ^
- * bits(t)) = bits(t) / log2(radix).  Add to this one for the lost
- * remainder due to integer division, one for the possible sign and 1
- * for the terminating \0. */
-
-#define ITOSTR_BUFFER_BOUND(t, log2r) ((sizeof (t) * 8) / log2r + 3)
-
-static void utostr(uint64_t n, int radix, int width)
-{
-    int log2r, r;
-
-    if (width <= 0) {
-        width = 1;
-    }
-
-    for(log2r = 0, r = radix ; r > 1 ; r /= 2, log2r += 1);
-
-    {
-        const int N = ITOSTR_BUFFER_BOUND(n, log2r);
-        char buffer[N], *p;
-        int i, k;
-
-        p = buffer + N;
-
-        for (; n > 0 ; *(p -= 1) = ((n % radix) +
-                                    (n % radix < 10 ? '0' : 'a' - 10)),
-                       n /= radix);
-
-        k = buffer + N - p;
-
-        for (i = k ; i < width ; i += 1) {
-            usbserial_write("0", 1, 0);
-        }
-
-        if (k > 0) {
-            usbserial_write(p, k, 0);
-        }
-    }
-}
-
-static void itostr(int64_t n, int radix, int width, int plus)
-{
-    if (n < 0) {
-        usbserial_write("-", 1, 0);
-        utostr((uint64_t)(-n), radix, width);
-    } else {
-        if (plus == 1) {
-            usbserial_write("+", 1, 0);
-        } else if (plus == 1) {
-            usbserial_write(" ", 1, 0);
-        }
-
-        utostr((uint64_t)n, radix, width);
-    }
-}
-
-static void ftostr(float n, int width, int precision, int plus)
-{
-    itostr((int64_t)n, 10, width, plus);
-    usbserial_write(".", 1, 0);
-    utostr((int64_t)(fabs(fmodf(n, 1) * 100000000)), 10, width);
-}
-
-int usbserial_printf(const char *format, ...)
-{
-    va_list ap;
-    const char *c, *d;
-
-    va_start(ap, format);
-
-    for (c = format ; *c != '\0' ;) {
-        for (d = c; *d != '%' && *d != '\0' ; d += 1);
-
-        if (d > c) {
-            usbserial_write(c, d - c, 0);
-        }
-
-        c = d;
-
-        if (*c == '%') {
-            int size = 2, base = -1, sign = -1, width = -1, precision = 5;
-            int plus = 0;
-
-            for (c += 1 ; ; c += 1) {
-                if (*c == '%') {
-                    usbserial_write("%", 1, 0);
-                    break;
-                } else if (*c == '+') {
-                    plus = 1;
-                } else if (*c == ' ') {
-                    plus = 2;
-                } else if (*c >= '0' && *c <= '9' && width < 0) {
-                    width = strtol(c, (char **)&c, 10);
-
-                    if (*c == '.') {
-                        precision = strtol(c + 1, (char **)&c, 10);
-                    }
-
-                    c -= 1;
-                } else if (*c == 'l') {
-                    size += 1;
-                } else if (*c == 'h') {
-                    size -= 1;
-                } else {
-                    if (*c == 's') {
-                        char *s;
-
-                        s = va_arg(ap, char *);
-                        usbserial_write(s, strlen(s), 0);
-                        break;
-                    } else if (*c == 'f') {
-                        ftostr((float)va_arg(ap, double),
-                               width, precision, plus);
-                        break;
-                    } else if (*c == 'd') {
-                        base = 10;
-                        sign = 1;
-                    } else if (*c == 'u') {
-                        base = 10;
-                        sign = 0;
-                    } else if (*c == 'x') {
-                        base = 16;
-                        sign = 0;
-                    } else if (*c == 'b') {
-                        base = 2;
-                        sign = 0;
-                    } else {
-                        break;
-                    }
-
-                    if (sign) {
-                        switch (size) {
-                        case 3:
-                            itostr(va_arg(ap, int64_t), base, width, plus);
-                            break;
-                        case 2:
-                            itostr(va_arg(ap, int32_t), base, width, plus);
-                            break;
-                        default:
-                            itostr(va_arg(ap, int), base, width, plus);
-                            break;
-                        }
-                    } else {
-                        switch (size) {
-                        case 3:
-                            utostr(va_arg(ap, uint64_t), base, width);
-                            break;
-                        case 2:
-                            utostr(va_arg(ap, uint32_t), base, width);
-                            break;
-                        default:
-                            utostr(va_arg(ap, unsigned int), base, width);
-                            break;
-                        }
-                    }
-
-                    break;
-                }
-            }
-
-            c += 1;
-        }
-    }
-
-    va_end(ap);
-
-    usbserial_write(NULL, 0, 1);
-
-    return 0;
 }

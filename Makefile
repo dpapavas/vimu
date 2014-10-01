@@ -13,7 +13,8 @@ CC = ./tools/arm-none-eabi/bin/arm-none-eabi-gcc
 OBJCOPY = ./tools/arm-none-eabi/bin/arm-none-eabi-objcopy
 SIZE = ./tools/arm-none-eabi/bin/arm-none-eabi-size
 
-SOURCES := main.c reset.c usb.c util.c i2c.c sdio.c sensors.c
+SOURCES := main.c reset.c usb.c usbserial.c util.c i2c.c sdio.c \
+	   sensors.c
 SSOURCES := crt0.s
 
 OBJS := $(SOURCES:.c=.o)

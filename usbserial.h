@@ -4,18 +4,27 @@
 #include <stdio.h>
 #include "usbcommon.h"
 
+#define NOTIFICATION_SERIALSTATE 0x20a1
+
+#define LINE_STATE_DTR (1 << 0)
+#define LINE_STATE_RTS (1 << 1)
+
+#define SERIAL_STATE_DCD (1 << 0)
+#define SERIAL_STATE_DSR (1 << 1)
+
+volatile uint8_t line_state;
+volatile uint8_t line_coding[7];
+
 int usbserial_is_dtr();
 void usbserial_await_dtr();
 
 int usbserial_is_rts();
 void usbserial_await_rts();
 
-int usbserial_write(const char *s, int n, int flush);
-int usbserial_read(char *buffer);
-
 #define usbserial_flush() usbserial_write(0, 0, 1)
 
 int usbserial_printf(const char *format, ...);
+int usbserial_set_state(uint16_t state);
 
 #define usbserial_trace(format, ...)                                    \
     usbserial_printf("%s: %d: " format, __FILE__, __LINE__, ##__VA_ARGS__);

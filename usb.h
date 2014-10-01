@@ -2,9 +2,12 @@
 #define _USB_H_
 
 #include "stdint.h"
+#include "usbcommon.h"
 
 #define ENDPOINTS_N (3)
 #define CONTROL_BUFFER_SIZE (64)
+#define NOTIFICATION_BUFFER_SIZE (16)
+#define DATA_BUFFER_SIZE (64)
 
 #define BDT_DESC_OWN ((uint32_t)1 << 7)
 #define BDT_DESC_DATA1 ((uint32_t)1 << 6)
@@ -41,9 +44,6 @@
 #define SETUP_GET_LINE_CODING 0x21a1
 #define SETUP_SET_CONTROL_LINE_STATE 0x2221
 
-#define LINE_STATE_DTR (1 << 0)
-#define LINE_STATE_RTS (1 << 1)
-
 #define DESCRIPTOR_TYPE(value) ((uint8_t)((value) >> 8))
 #define DESCRIPTOR_TYPE_DEVICE 1
 #define DESCRIPTOR_TYPE_DEVICE_CONFIGURATION 2
@@ -56,8 +56,9 @@
 #define PHASE_STATUS_OUT 4
 #define PHASE_COMPLETE 5
 
-#define oddbit(endpoint, tx) (oddbits & ((1 << (2 * (endpoint) + (tx)))))
+#define oddbit(endpoint, tx) ((oddbits & ((1 << (2 * (endpoint) + (tx))))) != 0)
 #define toggle_oddbit(endpoint, tx) oddbits ^= ((1 << (2 * (endpoint) + (tx))))
+#define reset_oddbit(endpoint, tx) oddbits &= ~((1 << (2 * (endpoint) + (tx))))
 
 #define bdt_descriptor(count, data1)                                    \
     (((data1) ? BDT_DESC_DATA1 : 0) | BDT_DESC_DTS |                    \
@@ -68,17 +69,11 @@
 #define LSB(s) ((s) & 0xff)
 #define MSB(s) (((s) >> 8) & 0xff)
 
-#define CONTROL_ENDPOINT 0
-#define COM_ENDPOINT 1
-#define DATA_ENDPOINT 2
-#define COM_BUFFER_SIZE 16
-#define DATA_BUFFER_SIZE 64
-
 static uint8_t device_descriptor[] = {
     18,                         /* bLength */
     1,                          /* bDescriptorType */
     0x00, 0x02,                 /* bcdUSB */
-    2,                          /* bDeviceClass (2 = CDC) */
+    0x02,                       /* bDeviceClass (2 = CDC) */
     0,                          /* bDeviceSubClass */
     0,                          /* bDeviceProtocol */
     CONTROL_BUFFER_SIZE,        /* bMaxPacketSize0 */
@@ -99,22 +94,22 @@ static uint8_t configuration_descriptor[CONFIGURATION_DESCRIPTOR_SIZE] = {
     2,                                  /* bDescriptorType */
     LSB(CONFIGURATION_DESCRIPTOR_SIZE), /* wTotalLength */
     MSB(CONFIGURATION_DESCRIPTOR_SIZE),
-    1,                                  /* bNumInterfaces */
+    2,                                  /* bNumInterfaces */
     1,                                  /* bconfigurationvalue */
     0,                                  /* iConfiguration */
-    0xC0,                               /* bmAttributes */
-    50,                                 /* bMaxPower */
+    0xc0,                               /* bmAttributes */
+    150,                                /* bMaxPower */
 
     /* Interface descriptor. */
 
-    9,       /* bLength */
-    4,       /* bDescriptorType */
-    0,       /* bInterfaceNumber */
-    0,       /* bAlternateSetting */
-    1,       /* bNumEndpoints */
+    9,                          /* bLength */
+    4,                          /* bDescriptorType */
+    COMMUNICATION_INTERFACE,    /* bInterfaceNumber */
+    0,                          /* bAlternateSetting */
+    1,                          /* bNumEndpoints */
     0x02,    /* bInterfaceClass (2 = Communication Interface Class) */
     0x02,    /* bInterfaceSubClass (2 = ACM subclass) */
-    0x01,    /* bInterfaceProtocol */
+    0x00,    /* bInterfaceProtocol */
     0,       /* iInterface */
 
     /* CDC Header Functional Descriptor. */
@@ -129,7 +124,7 @@ static uint8_t configuration_descriptor[CONFIGURATION_DESCRIPTOR_SIZE] = {
     5,                          /* bFunctionLength */
     0x24,                       /* bDescriptorType */
     0x01,                       /* bDescriptorSubtype */
-    0x01,                       /* bmCapabilities */
+    0x00,                       /* bmCapabilities */
     1,                          /* bDataInterface */
 
     /* Abstract Control Management Functional Descriptor. */
@@ -137,7 +132,7 @@ static uint8_t configuration_descriptor[CONFIGURATION_DESCRIPTOR_SIZE] = {
     4,                          /* bFunctionLength */
     0x24,                       /* bDescriptorType */
     0x02,                       /* bDescriptorSubtype */
-    0x06,                       /* bmCapabilities */
+    0x02,                       /* bmCapabilities */
 
     /* Union Functional Descriptor. */
 
@@ -149,21 +144,21 @@ static uint8_t configuration_descriptor[CONFIGURATION_DESCRIPTOR_SIZE] = {
 
     /* Endpoint descriptor. */
 
-    7,                          /* bLength */
-    5,                          /* bDescriptorType */
-    COM_ENDPOINT | 0x80,        /* bEndpointAddress */
-    0x03,                       /* bmAttributes (0x03=intr) */
-    COM_BUFFER_SIZE, 0,         /* wMaxPacketSize */
+    7,                            /* bLength */
+    5,                            /* bDescriptorType */
+    NOTIFICATION_ENDPOINT | 0x80, /* bEndpointAddress */
+    0x03,                         /* bmAttributes (0x03=intr) */
+    NOTIFICATION_BUFFER_SIZE, 0,  /* wMaxPacketSize */
     64,
 
     /* Interface descriptor. */
 
     9,               /* bLength */
     4,               /* bDescriptorType */
-    1,               /* bInterfaceNumber */
+    DATA_INTERFACE,  /* bInterfaceNumber */
     0,               /* bAlternateSetting */
     2,               /* bNumEndpoints */
-    0x0A,            /* bInterfaceClass (0a = Data Interface Class) */
+    0x0a,            /* bInterfaceClass (0a = Data Interface Class) */
     0x00,            /* bInterfaceSubClass */
     0x00,            /* bInterfaceProtocol */
     0,
@@ -191,8 +186,5 @@ typedef struct {
     uint32_t desc;
     void *buffer;
 } bdtentry_t;
-
-void initialize_usb();
-int usb_initialized();
 
 #endif
