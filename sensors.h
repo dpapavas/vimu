@@ -82,7 +82,7 @@
 
 #define LINE_WIDTH 10
 
-typedef void (*sensors_data_ready_callback)(float *line);
+typedef void (*sensors_data_ready_callback)(int16_t *line);
 
 int sensors_are_online();
 void read_sensor_values(int16_t *line);

@@ -56,7 +56,7 @@ static void itostr(int64_t n, int radix, int width, int plus)
     } else {
         if (plus == 1) {
             usb_write("+", 1, 0);
-        } else if (plus == 1) {
+        } else if ( plus == 2) {
             usb_write(" ", 1, 0);
         }
 
@@ -66,9 +66,22 @@ static void itostr(int64_t n, int radix, int width, int plus)
 
 static void ftostr(float n, int width, int precision, int plus)
 {
-    itostr((int64_t)n, 10, width, plus);
+    if (n < 0) {
+        usb_write("-", 1, 0);
+
+        utostr((uint64_t)-n, 10, width - precision - 1 - (n < 0 || plus > 0));
+    } else {
+        if (plus == 1) {
+            usb_write("+", 1, 0);
+        } else if (plus == 2) {
+            usb_write(" ", 1, 0);
+        }
+
+        utostr((uint64_t)n, 10, width - precision - 1 - (n < 0 || plus > 0));
+    }
+
     usb_write(".", 1, 0);
-    utostr((int64_t)(fabs(fmodf(n, 1) * 100000000)), 10, width);
+    utostr((uint64_t)(fabs(fmodf(n, 1) * pow10(precision))), 10, precision);
 }
 
 int usbserial_printf(const char *format, ...)

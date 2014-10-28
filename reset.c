@@ -3,6 +3,7 @@
 
 #include "mk20dx128.h"
 #include "usbcommon.h"
+#include "usbserial.h"
 #include "util.h"
 #include "i2c.h"
 
@@ -12,25 +13,29 @@ extern int main (void);
 
 static __attribute__((naked, used)) void diagnose_fault (unsigned long *sp)
 {
-    usbserial_printf("Hard fault\n"
-                     "CFSR: %8x\tHFSR: %8x",
-                     SCB_CFSR, SCB_HFSR);
+    if (usbserial_is_rts()) {
+        prioritize_interrupt(35, 0);
 
-    if (SCB_CFSR & SCB_CFSR_MMARVALID) {
-        usbserial_printf("\tMMAR: %8x", SCB_MMAR);
+        usbserial_printf("Hard fault\n"
+                         "CFSR: %8x\tHFSR: %8x",
+                         SCB_CFSR, SCB_HFSR);
+
+        if (SCB_CFSR & SCB_CFSR_MMARVALID) {
+            usbserial_printf("\tMMAR: %8x", SCB_MMAR);
+        }
+
+        if (SCB_CFSR & SCB_CFSR_BFARVALID) {
+            usbserial_printf("\tBFAR: %8x", SCB_BFAR);
+        }
+
+        usbserial_printf("\nr0: %8x\tr1: %8x\tr2: %8x\tr3: %8x\tr12: %8x\n"
+                         "lr: %8x\tpc: %8x\tpsr: %8x\n",
+                         sp[0], sp[1], sp[2], sp[3],
+                         sp[4], sp[5], sp[6], sp[7]);
     }
-
-    if (SCB_CFSR & SCB_CFSR_BFARVALID) {
-        usbserial_printf("\tBFAR: %8x", SCB_BFAR);
-    }
-
-    usbserial_printf("\nr0: %8x\tr1: %8x\tr2: %8x\tr3: %8x\tr12: %8x\n"
-                     "lr: %8x\tpc: %8x\tpsr: %8x\n",
-                     sp[0], sp[1], sp[2], sp[3],
-                     sp[4], sp[5], sp[6], sp[7]);
 
     while(1) {
-        delay_ms(75);
+        delay_ms(150);
         toggle_led();
     }
 }
@@ -205,7 +210,7 @@ void reset(void)
     WDOG_UNLOCK = (uint16_t)0xd928;
     enable_interrupts();
 
-    WDOG_STCTRLH &= ~(WDOG_STCTRLH_WDOGEN);
+    WDOG_STCTRLH &= ~WDOG_STCTRLH_WDOGEN;
 
     /* Copy the data section to RAM and clear the bss section. */
 
@@ -257,12 +262,12 @@ void reset(void)
     MCG_C1 = MCG_C1_CLKS(0) | MCG_C1_FRDIV(4);
     while ((MCG_S & MCG_S_CLKST_MASK) != MCG_S_CLKST(3));
 
-    /* Enable the clock to PORTC, and set C5 (the led) as a GPIO
+    /* Enable the clock to PORTC, and set C3 (the led) as a GPIO
      * output. */
 
     SIM_SCGC5 |= SIM_SCGC5_PORTC;
-    PORTC_PCR5 = PORT_PCR_MUX(1) | PORT_PCR_DSE;
-    GPIOC_PDDR = ((uint32_t)1 << 5);
+    PORTC_PCR3 = PORT_PCR_MUX(1) | PORT_PCR_DSE;
+    GPIOC_PDDR = ((uint32_t)1 << 3);
 
     /* Configure the SysTick timer. */
 
@@ -279,5 +284,5 @@ void reset(void)
 
     main();
 
-    while(1);
+    while(1) sleep();
 }

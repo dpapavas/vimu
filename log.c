@@ -6,6 +6,7 @@
 #include "usbserial.h"
 #include "util.h"
 
+#define RING_SIZE 3
 #define INDEX_BLOCKS 2
 #define SAMPLE_SIZE sizeof(float)
 #define ENTRIES_PER_INDEX_BLOCK (512 / sizeof(context.entry))
@@ -37,55 +38,72 @@
  ************************************************/
 
 static struct {
-    uint32_t entry[4];
+    uint32_t entry[4], filled, written;
     uint16_t block, fill;
     uint8_t offset, width;
-    uint8_t buffers[2][512];
+    uint8_t buffers[RING_SIZE][512];
 } context;
 
 static uint32_t data = (1 << 10) - 1;
+
+static void flush_filled_buffers()
+{
+    if (context.written < context.filled) {
+        /* usbserial_trace("< %f\n", (float)cycles() / cycles_in_ms(1)); */
+
+        sdio_write_single_block(context.entry[2] + context.written,
+                                context.buffers[context.written % RING_SIZE]);
+        context.written += 1;
+   }
+}
 
 static void fusion_data_ready(uint8_t *line)
 {
     int spillover;
 
+    assert (context.filled - context.written < RING_SIZE - 1);
     spillover = context.width - (sizeof(context.buffers[0]) - context.fill);
 
     if (spillover < 0) {
         /* Write entire lines to the buffer if they fit. */
 
-        memcpy (context.buffers[context.entry[3] % 2] + context.fill,
+        memcpy (context.buffers[context.filled % RING_SIZE] + context.fill,
                 line, context.width);
+
         context.fill += context.width;
     } else {
-        toggle_led();
-
         /* If the line doesn't fit entirely, write the beginning of
          * the next line. */
 
-        memcpy (context.buffers[context.entry[3] % 2] + context.fill,
+        memcpy (context.buffers[context.filled % RING_SIZE] + context.fill,
                 line, context.width - spillover);
-
-        /* Flush the buffer into the SD card.  */
-
-        sleep_while(sdio_is_busy());
-        sdio_write_single_block(context.entry[2] + context.entry[3],
-                                context.buffers[context.entry[3] % 2]);
-
-        /* usbserial_trace("%d\n", */
-        /*                 context.entry[2] + context.entry[3]); */
-
-        context.entry[3] += 1;
-        context.fill = spillover;
 
         /* If there's left-over data from the last line copy it to the
          * start of the new buffer. */
 
         if (spillover > 0) {
-            memcpy(context.buffers[context.entry[3] % 2],
+            memcpy(context.buffers[!(context.filled % RING_SIZE)],
                    line + context.width - spillover, spillover);
         }
+
+        context.filled += 1;
+        context.fill = spillover;
+
+        /* Flush the buffer into the SD card.  */
+
+        /* usbserial_trace("> %f\n", (float)cycles() / cycles_in_ms(1)); */
+
+        if (!sdio_is_busy()) {
+            flush_filled_buffers();
+        }
+
+        /* usbserial_trace("%d\n", */
+        /*                 context.entry[2] + context.filled); */
     }
+
+    /* Increment the number of entries written. */
+
+    context.entry[3] += 1;
 }
 
 static uint32_t calculate_next_free_block(uint32_t *entry)
@@ -121,98 +139,106 @@ void log_initialize()
     }
 }
 
-void log_begin()
+void log_toggle()
 {
-    uint32_t *header, f;
-    uint8_t buffer[512];
-    int m, n;
+    if (context.block == 0) {
+        uint32_t *header, f;
+        uint8_t buffer[512];
+        int m, n;
 
-    sdio_read_single_block(0, buffer);
-    sleep_while(sdio_is_busy());
+        /* We're not currently logging so start now. */
 
-    header = (uint32_t *)buffer;
-
-    n = header[0];
-    context.block = n / ENTRIES_PER_INDEX_BLOCK + 1;
-    context.offset = n % ENTRIES_PER_INDEX_BLOCK;
-
-    if (context.block == 1 && context.offset == 0) {
-        /* This is the first entry so we only need to skip the index
-         * blocks. */
-
-        m = 1 + INDEX_BLOCKS;
-    } else if (context.offset == 0) {
-        uint32_t *entry;
-
-        /* The last entry is stored in the previous block so we need
-         * to fetch it. */
-
-        sdio_read_single_block(context.block - 1, buffer);
+        sdio_read_single_block(0, buffer);
         sleep_while(sdio_is_busy());
 
-        entry = (uint32_t *)(buffer + (ENTRIES_PER_INDEX_BLOCK - 1) *
-                             sizeof(context.entry));
-        m = calculate_next_free_block(entry);
+        header = (uint32_t *)buffer;
+
+        n = header[0];
+        context.block = n / ENTRIES_PER_INDEX_BLOCK + 1;
+        context.offset = n % ENTRIES_PER_INDEX_BLOCK;
+
+        if (context.block == 1 && context.offset == 0) {
+            /* This is the first entry so we only need to skip the index
+             * blocks. */
+
+            m = 1 + INDEX_BLOCKS;
+        } else if (context.offset == 0) {
+            uint32_t *entry;
+
+            /* The last entry is stored in the previous block so we need
+             * to fetch it. */
+
+            sdio_read_single_block(context.block - 1, buffer);
+            sleep_while(sdio_is_busy());
+
+            entry = (uint32_t *)(buffer + (ENTRIES_PER_INDEX_BLOCK - 1) *
+                                 sizeof(context.entry));
+            m = calculate_next_free_block(entry);
+        } else {
+            uint32_t *entry;
+
+            sdio_read_single_block(context.block, buffer);
+            sleep_while(sdio_is_busy());
+
+            entry = (uint32_t *)(buffer + (context.offset - 1) *
+                                 sizeof(context.entry));
+            m = calculate_next_free_block(entry);
+        }
+
+        context.entry[0] = n + 1;
+        context.entry[1] = data;
+        context.entry[2] = m;
+        context.entry[3] = 0;
+
+        /* Count the number of channels in the log by counting the
+         * number of bits set in the entry's data field. */
+
+        for (context.width = 0, f = data ; f ; context.width += SAMPLE_SIZE) {
+            f &= f - 1;
+        }
+
+        context.fill = context.filled = context.written = 0;
+
+        sdio_set_callback(flush_filled_buffers);
+        fusion_set_callback(fusion_data_ready);
     } else {
-        uint32_t *entry;
+        uint8_t buffer[512];
+        uint32_t *n;
+
+        /* Stop logging. */
+
+        sdio_set_callback(NULL);
+        fusion_set_callback(NULL);
+
+        /* usb_write("+++\n", 4, 1); */
+
+        /* Fetch the last index block, add the entry and write it back. */
 
         sdio_read_single_block(context.block, buffer);
         sleep_while(sdio_is_busy());
 
-        entry = (uint32_t *)(buffer + (context.offset - 1) *
-                             sizeof(context.entry));
-        m = calculate_next_free_block(entry);
+        memcpy(buffer + context.offset * sizeof(context.entry),
+               context.entry, sizeof(context.entry));
+
+        sdio_write_single_block(context.block, buffer);
+        sleep_while(sdio_is_busy());
+
+        /* Fetch the master index block, increment the number of entries
+         * and write it back. */
+
+        sdio_read_single_block(0, buffer);
+        sleep_while(sdio_is_busy());
+
+        n = (uint32_t *)(buffer + 0);
+        *n += 1;
+
+        sdio_write_single_block(0, buffer);
+        sleep_while(sdio_is_busy());
+
+        /* This signifies we're not logging. */
+
+        context.block = 0;
     }
-
-    context.entry[0] = n + 1;
-    context.entry[1] = data;
-    context.entry[2] = m;
-    context.entry[3] = 0;
-
-    /* Count the number of channels in the log by counting the
-     * number of bits set in the entry's data field. */
-
-    for (context.width = 0, f = data ; f ; context.width += SAMPLE_SIZE) {
-        f &= f - 1;
-    }
-
-    context.fill = 0;
-
-    fusion_set_callback(fusion_data_ready);
-    fusion_start();
-}
-
-void log_end()
-{
-    uint8_t buffer[512];
-    uint32_t *n;
-
-    fusion_set_callback(NULL);
-
-    /* usb_write("+++\n", 4, 1); */
-
-    /* Fetch the last index block, add the entry and write it back. */
-
-    sdio_read_single_block(context.block, buffer);
-    sleep_while(sdio_is_busy());
-
-    memcpy(buffer + context.offset * sizeof(context.entry),
-           context.entry, sizeof(context.entry));
-
-    sdio_write_single_block(context.block, buffer);
-    sleep_while(sdio_is_busy());
-
-    /* Fetch the master index block, increment the number of entries
-     * and write it back. */
-
-    sdio_read_single_block(0, buffer);
-    sleep_while(sdio_is_busy());
-
-    n = (uint32_t *)(buffer + 0);
-    *n += 1;
-
-    sdio_write_single_block(0, buffer);
-    sleep_while(sdio_is_busy());
 }
 
 void log_list()
@@ -229,19 +255,23 @@ void log_list()
     n_p = (uint32_t *)(buffer + 0);
     n = *n_p;
 
-    for (i = 0 ; i < n ; i += 1) {
-        uint32_t *entry;
+    if (n == 0) {
+        usbserial_printf("No entries.\n");
+    } else {
+        for (i = 0 ; i < n ; i += 1) {
+            uint32_t *entry;
 
-        if (i % ENTRIES_PER_INDEX_BLOCK == 0) {
-            sdio_read_single_block(i / ENTRIES_PER_INDEX_BLOCK + 1, buffer);
-            sleep_while(sdio_is_busy());
+            if (i % ENTRIES_PER_INDEX_BLOCK == 0) {
+                sdio_read_single_block(i / ENTRIES_PER_INDEX_BLOCK + 1, buffer);
+                sleep_while(sdio_is_busy());
+            }
+
+            entry = (uint32_t *)(buffer + (i % ENTRIES_PER_INDEX_BLOCK) *
+                                 sizeof(context.entry));
+
+            usbserial_printf("%d %x %d %d\n",
+                             entry[0], entry[1], entry[2], entry[3]);
         }
-
-        entry = (uint32_t *)(buffer + (i % ENTRIES_PER_INDEX_BLOCK) *
-                             sizeof(context.entry));
-
-        usbserial_printf("%d %x %d %d\n",
-                         entry[0], entry[1], entry[2], entry[3]);
     }
 }
 

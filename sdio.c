@@ -1,4 +1,5 @@
 #include "mk20dx128.h"
+#include "sdio.h"
 #include "usbserial.h"
 #include "util.h"
 
@@ -28,6 +29,7 @@
 #define SPI_PUSHR_HEADER (SPI_PUSHR_PCS(0) | SPI_PUSHR_CTAS(0))
 
 static int8_t ccs;
+static sdio_command_finished_callback callback;
 
 static volatile struct {
     uint8_t command, response, *buffer;
@@ -58,6 +60,11 @@ static void finalize_command()
 
     SPI0_RSER &= ~SPI_RSER_TCF_RE;
     context.busy = 0;
+    turn_off_led();
+
+    if(callback) {
+        callback();
+    }
 }
 
 static void initialize_command(uint8_t cmd, uint32_t arg,
@@ -74,6 +81,7 @@ static void initialize_command(uint8_t cmd, uint32_t arg,
     context.buffer = buffer;
     context.tries = 0;
     context.busy = 1;
+    turn_on_led();
 
     /* Enable the interrupt. */
 
@@ -403,7 +411,7 @@ void sdio_initialize()
     int i;
 
     enable_interrupt(12);
-    prioritize_interrupt(12, 2);
+    prioritize_interrupt(12, 3);
 
     /* Enable the CRC module. */
 
@@ -515,4 +523,9 @@ uint8_t sdio_get_status()
 volatile int sdio_is_busy()
 {
     return context.busy;
+}
+
+void sdio_set_callback(sdio_command_finished_callback new)
+{
+    callback = new;
 }

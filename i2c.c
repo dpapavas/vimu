@@ -349,12 +349,12 @@ void i2c_initialize()
        I2C0 */
 
     enable_interrupt(11);
-    prioritize_interrupt(11, 1);
+    prioritize_interrupt(11, 2);
 
     /* PIT0 */
 
     enable_interrupt(30);
-    prioritize_interrupt(30, 1);
+    prioritize_interrupt(30, 2);
 
     /* Enable the i2c and PORTB module clocks. */
 

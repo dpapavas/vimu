@@ -29,13 +29,4 @@ int usbserial_set_state(uint16_t state);
 #define usbserial_trace(format, ...)                                    \
     usbserial_printf("%s: %d: " format, __FILE__, __LINE__, ##__VA_ARGS__);
 
-#define usbserial_assert(cond)                                  \
-    if(!(cond)) {                                               \
-        usbserial_trace("assertion failed: %s.\n", #cond);      \
-        while(1) {                                              \
-            delay_ms(50);                                       \
-            toggle_led();                                       \
-        }                                                       \
-    }
-
 #endif

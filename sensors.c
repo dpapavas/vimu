@@ -6,9 +6,6 @@
 #include "sensors.h"
 #include "util.h"
 
-/* #undef assert */
-/* #define assert usbserial_assert */
-
 #define MAX_RETRIES 5
 
 static int16_t buffers[2][LINE_WIDTH];
@@ -31,43 +28,7 @@ static void data_ready(int status, int count)
     }
 
     if(callback) {
-        float line[10];
-        int16_t *b;
-
-        b = buffers[r];
-
-
-        /* Acceleration. */
-
-        {
-            static const float gain[] = {1.0 / 16384, 1.0 / 8192,
-                                         1.0 / 4096, 1.0 / 2048};
-
-            line[0] = (float)b[0] * gain[ACCEL_FSR];
-            line[1] = (float)b[1] * gain[ACCEL_FSR];
-            line[2] = (float)b[2] * gain[ACCEL_FSR];
-        }
-
-        /* Angular rate. */
-
-        {
-            static const float gain[] = {1.0 / 131, 1.0 / 65.5,
-                                         1.0 / 32.8, 1.0 / 16.4};
-
-            line[3] = (float)b[4] * gain[GYRO_FSR];
-            line[4] = (float)b[5] * gain[GYRO_FSR];
-            line[5] = (float)b[6] * gain[GYRO_FSR];
-        }
-
-        {
-            line[6] = (float)b[7];
-            line[7] = (float)b[8];
-            line[8] = (float)b[9];
-        }
-
-        line[9] = (float)b[3];
-
-        callback(line);
+        callback(buffers[r]);
         fetched -= 1;
     }
 }
@@ -87,6 +48,9 @@ static void fetch_more_data()
 
 __attribute__((interrupt ("IRQ"))) void portb_isr(void)
 {
+    /* usbserial_printf ("%f\n", (float)cycles() / cycles_in_ms(1)); */
+    /* PORTB_PCR17 |= PORT_PCR_ISF; */
+
     if (PORTB_PCR0 & PORT_PCR_ISF) {
         PORTB_PCR0 |= PORT_PCR_ISF;
 
@@ -254,7 +218,7 @@ static void power_up()
     PORTB_PCR0 = PORT_PCR_MUX(1) | PORT_PCR_IRQC(9);
 
     enable_interrupt(41);
-    prioritize_interrupt(41, 0);
+    prioritize_interrupt(41, 1);
 
     online = 1;
 }
@@ -262,16 +226,6 @@ static void power_up()
 int sensors_are_online()
 {
     return online;
-}
-
-void read_sensor_values(int16_t *line)
-{
-    assert(!callback);
-
-    sleep_while (fetched == 0);
-
-    memcpy (line, buffers[r], sizeof(buffers[0]));
-    fetched -= 1;
 }
 
 void sensors_set_callback(sensors_data_ready_callback new_callback)

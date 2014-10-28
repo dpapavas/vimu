@@ -119,23 +119,23 @@ static inline int process_setup_packet(uint16_t request, uint16_t value,
                 r->buffer = buffers.serial[i];
                 t->buffer = buffers.serial[2 + i];
 
-                /* Prime the input BDT entries. In the case of data
-                 * endpont input transmissions we use the oddbits to
-                 * keep track of the BDT entry we should read next, so
-                 * don't toggle here. */
+                /* Prime the first input BDT entry. In the case of
+                 * data endpont input transmissions we use the oddbits
+                 * to keep track of the BDT entry we should read next,
+                 * so don't toggle here. */
 
                 r->desc = bdt_descriptor (DATA_BUFFER_SIZE, i);
-                r->desc |= BDT_DESC_OWN;
+
+                if (i == 0) {
+                    r->desc |= BDT_DESC_OWN;
+                }
+
                 t->desc = bdt_descriptor (0, 0);
             }
 
             /* Initialize the buffer pointers. */
 
             reset_oddbit(DATA_ENDPOINT, 0);
-
-            buffered[0].data = NULL;
-            buffered[0].length = 0;
-
             reset_oddbit(DATA_ENDPOINT, 1);
 
             buffered[1].data = NULL;
@@ -466,10 +466,10 @@ __attribute__((interrupt ("IRQ"))) void usb_isr()
 
 void usb_initialize()
 {
-    /* Enable the USB interrupt. */
+    /* Enable the USB interrupt but give it a low priority. */
 
     enable_interrupt(35);
-    prioritize_interrupt(35, 3);
+    prioritize_interrupt(35, 14);
 
     /* Set the USB clock source to MGCPLL with a divider for 48Mhz and
      * enable the USB clock. */
@@ -546,50 +546,35 @@ int usb_interrupt(uint8_t *buffer, int n)
     return 0;
 }
 
-int usb_read(char *buffer, int n)
+int usb_read(char **buffer, int *length)
 {
     volatile bdtentry_t *in;
-    int m;
 
     if (configuration == 0) {
-        return -1;
+        return 0;
     }
 
     /* Fetch more data if needed. */
 
-    if (buffered[0].length == 0) {
-        in = bdt_entry(DATA_ENDPOINT, 0, oddbit(DATA_ENDPOINT, 0));
-        sleep_while(in->desc & BDT_DESC_OWN);
-
-        buffered[0].data = in->buffer;
-        buffered[0].length = BDT_DESC_BYTE_COUNT(in->desc);
-
-        /* usbserial_trace("%d, %d\n", readbit(), buffered[0].length); */
+    in = bdt_entry(DATA_ENDPOINT, 0, oddbit(DATA_ENDPOINT, 0));
+    if (in->desc & BDT_DESC_OWN) {
+        return 0;
     }
 
-    /* Copy data to output buffer. */
+    *buffer = in->buffer;
+    *length = BDT_DESC_BYTE_COUNT(in->desc);
 
-    m = buffered[0].length > n ? n : buffered[0].length;
+    /* Release the other BDT entry. */
 
-    memcpy(buffer, buffered[0].data, m);
+    toggle_oddbit(DATA_ENDPOINT, 0);
 
-    buffered[0].data += m;
-    buffered[0].length -= m;
+    in = bdt_entry(DATA_ENDPOINT, 0, oddbit(DATA_ENDPOINT, 0));
+    assert(!(in->desc & BDT_DESC_OWN));
 
-    /* Release the BDT once we're done. */
+    in->desc = bdt_descriptor (DATA_BUFFER_SIZE, oddbit(DATA_ENDPOINT, 0));
+    in->desc |= BDT_DESC_OWN;
 
-    if (buffered[0].length == 0) {
-        in = bdt_entry(DATA_ENDPOINT, 0, oddbit(DATA_ENDPOINT, 0));
-        assert(!(in->desc & BDT_DESC_OWN));
-
-        in->desc = bdt_descriptor (DATA_BUFFER_SIZE,
-                                   oddbit(DATA_ENDPOINT, 0));
-        in->desc |= BDT_DESC_OWN;
-
-        toggle_oddbit(DATA_ENDPOINT, 0);
-    }
-
-    return m;
+    return 1;
 }
 
 int usb_write(const char *s, int n, int flush)

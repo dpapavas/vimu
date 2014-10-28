@@ -7,9 +7,13 @@
 #define PORTB_PCR1 (*((volatile uint32_t *)0x4004a004))
 #define PORTB_PCR2 (*((volatile uint32_t *)0x4004a008))
 #define PORTB_PCR3 (*((volatile uint32_t *)0x4004a00c))
+#define PORTB_PCR16 (*((volatile uint32_t *)0x4004a040))
+#define PORTB_PCR17 (*((volatile uint32_t *)0x4004a044))
 
 #define PORTC_PCR0 (*((volatile uint32_t *)0x4004b000))
 #define PORTC_PCR1 (*((volatile uint32_t *)0x4004b004))
+#define PORTC_PCR2 (*((volatile uint32_t *)0x4004b008))
+#define PORTC_PCR3 (*((volatile uint32_t *)0x4004b00c))
 #define PORTC_PCR4 (*((volatile uint32_t *)0x4004b010))
 #define PORTC_PCR5 (*((volatile uint32_t *)0x4004b014))
 #define PORTC_PCR6 (*((volatile uint32_t *)0x4004b018))
@@ -61,6 +65,7 @@
 #define MCG_S (*((volatile uint8_t *)0x40064006))
 #define MCG_C1_CLKS(n) (((uint8_t)(n) & 0b11) << 6)
 #define MCG_C1_FRDIV(n) (((uint8_t)(n) & 0b111) << 3)
+#define MCG_C1_IRCLKEN ((uint8_t)1 << 1)
 #define MCG_C2_RANGE0(n) (((uint8_t)(n) & 0b11) << 4)
 #define MCG_C2_EREFS0 ((uint8_t)1 << 2)
 #define MCG_C5_PRDIV0(n)(uint8_t) ((n) & 0b11111)
@@ -78,9 +83,11 @@
 #define SIM_SCGC6 (*((volatile uint32_t *)0x4004803C))
 #define SIM_CLKDIV1 (*((volatile uint32_t *)0x40048044))
 #define SIM_CLKDIV2 (*((volatile uint32_t *)0x40048048))
+#define SIM_SOPT1 (*((volatile uint32_t *)0x40047000))
 #define SIM_SOPT2 (*((volatile uint32_t *)0x40048004))
 #define SIM_SCGC4_USBOTG ((uint32_t)1 << 18)
 #define SIM_SCGC4_I2C0 ((uint32_t)1 << 6)
+#define SIM_SCGC5_LPTIMER ((uint32_t)1 << 0)
 #define SIM_SCGC5_PORTB ((uint32_t)1 << 10)
 #define SIM_SCGC5_PORTC ((uint32_t)1 << 11)
 #define SIM_SCGC5_PORTD ((uint32_t)1 << 12)
@@ -96,6 +103,7 @@
 #define SIM_SOPT2_PLLFLLSEL ((uint32_t)1 << 16)
 #define SIM_SOPT2_TRACECLKSEL ((uint32_t)1 << 12)
 #define SIM_SOPT2_CLKOUTSEL(n) (((uint32_t)(n) & 0b111) << 5)
+#define SIM_SOPT1_OSC32KSEL(n) (((uint32_t)(n) & 0b11) << 18)
 
 #define WDOG_STCTRLH (*(volatile uint16_t *)0x40052000)
 #define WDOG_UNLOCK (*(volatile uint16_t *)0x4005200e)
@@ -277,5 +285,22 @@
 #define CRC_CTRL *(volatile uint32_t *)0x40032008
 #define CRC_CTRL_TCRC ((uint32_t)1 << 24)
 #define CRC_CTRL_WAS ((uint32_t)1 << 25)
+
+#define LPTMR0_CSR (*((volatile uint32_t *)(0x40040000)))
+#define LPTMR0_PSR (*((volatile uint32_t *)(0x40040004)))
+#define LPTMR0_CMR (*((volatile uint32_t *)(0x40040008)))
+#define LPTMR0_CNR (*((volatile uint32_t *)(0x4004000c)))
+
+#define LPTMR0_CSR_TEN ((uint32_t)1 << 0)
+#define LPTMR0_CSR_TMS ((uint32_t)1 << 1)
+#define LPTMR0_CSR_TFC ((uint32_t)1 << 2)
+#define LPTMR0_CSR_TPP ((uint32_t)1 << 3)
+#define LPTMR0_CSR_TPS(n) (((uint32_t)(n) & 0b11) << 4)
+#define LPTMR0_CSR_TIE ((uint32_t)1 << 6)
+#define LPTMR0_CSR_TCF ((uint32_t)1 << 7)
+
+#define LPTMR0_PSR_PCS(n) (((uint32_t)(n) & 0b11) << 0)
+#define LPTMR0_PSR_PBYP ((uint32_t)1 << 2)
+#define LPTMR0_PSR_PRESCALE(n) (((uint32_t)(n) & 0b1111) << 3)
 
 #endif
