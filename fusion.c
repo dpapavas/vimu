@@ -62,14 +62,14 @@ __attribute__((interrupt ("IRQ"))) void software_isr(void)
         }
 
         {
-            line[6] = (float)l[7];
-            line[7] = (float)l[8];
-            line[8] = (float)l[9];
+            line[6] = (float)l[7] * 1.0 / 16384;
+            line[7] = (float)l[8] * 1.0 / 16384;
+            line[8] = (float)l[9] * 1.0 / 16384;
         }
 
         line[9] = (float)l[3] / 340.0 + 36.53;
 
-        callback((uint8_t *)line);
+        callback(line);
 
         r = (r + 1) % RING_SIZE;
         available -= 1;

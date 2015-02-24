@@ -23,14 +23,16 @@ static void data_ready(int status, int count)
     available -= 1;
     r = !r;
 
-    if (available > 0) {
-        fetch_more_data();
+    if(callback) {
+        if (available > 0) {
+        turn_on_led();
+            fetch_more_data();
+        }
+
+        callback(buffers[r]);
     }
 
-    if(callback) {
-        callback(buffers[r]);
-        fetched -= 1;
-    }
+    fetched -= 1;
 }
 
 static void fetch_more_data()
@@ -49,10 +51,9 @@ static void fetch_more_data()
 __attribute__((interrupt ("IRQ"))) void portb_isr(void)
 {
     /* usbserial_printf ("%f\n", (float)cycles() / cycles_in_ms(1)); */
-    /* PORTB_PCR17 |= PORT_PCR_ISF; */
 
-    if (PORTB_PCR0 & PORT_PCR_ISF) {
-        PORTB_PCR0 |= PORT_PCR_ISF;
+    if (PORTB_PCR2 & PORT_PCR_ISF) {
+        PORTB_PCR2 |= PORT_PCR_ISF;
 
         available += 1;
 
@@ -65,7 +66,7 @@ __attribute__((interrupt ("IRQ"))) void portb_isr(void)
         /*     uint64_t t; */
 
         /*     t = cycles(); */
-        /*     usbserial_trace("%lu\n", t - c); */
+        /*     usbserial_trace("%f ms\n", (float)(t - c) / cycles_in_ms(1)); */
         /*     c = t; */
         /* } */
 
@@ -100,15 +101,17 @@ static void power_down()
 {
     assert(online);
 
-    PORTB_PCR0 = PORT_PCR_MUX(0);
-    sleep_while (i2c_is_busy());
+    /* Stop monitoring the sensors and wait until all pending i2c
+     * requests have completed. */
 
-    disable_interrupt(41);
+    disable_interrupt(43);
 
-    /* Pull PC1 low to power down the sensors. */
+    PORTB_PCR2 = PORT_PCR_MUX(0);
+    sleep_while (available > 0);
 
-    PORTD_PCR5 = PORT_PCR_MUX(0);
-    PORTC_PCR1 = PORT_PCR_MUX(0);
+    /* Turn PC0 off to power down the sensors. */
+
+    PORTC_PCR0 = PORT_PCR_MUX(0);
 
     online = 0;
 }
@@ -117,23 +120,19 @@ static void power_up()
 {
     assert(!online);
 
-    SIM_SCGC5 |= SIM_SCGC5_PORTD | SIM_SCGC5_PORTC;
+    SIM_SCGC5 |= SIM_SCGC5_PORTC;
 
-    /* Configure PC1 and and PD5 as outputs and pull them high and low
-     * respectively to power the sensors. */
+    /* Configure PC0 as an output and pull it low to power the
+     * sensors. */
 
-    PORTD_PCR5 = PORT_PCR_MUX(1) | PORT_PCR_DSE;
-    PORTC_PCR1 = PORT_PCR_MUX(1) | PORT_PCR_DSE;
+    PORTC_PCR0 = PORT_PCR_MUX(1) | PORT_PCR_DSE;
 
-    GPIOD_PDDR |= ((uint32_t)1 << 5);
-    GPIOD_PCOR |= ((uint32_t)1 << 5);
-
-    GPIOC_PDDR |= ((uint32_t)1 << 1);
-    GPIOC_PSOR |= ((uint32_t)1 << 1);
+    GPIOC_PDDR |= ((uint32_t)1 << 0);
+    GPIOC_PCOR = ((uint32_t)1 << 0);
 
     /* Wait for the sensor board to power-on. */
 
-    delay_ms(100);
+    delay_ms(250);
 
     configure_register(MPU6050, WHO_AM_I, 0x68);
 
@@ -212,10 +211,10 @@ static void power_up()
     configure_register (MPU6050, USER_CTRL,
                         USER_CTRL_I2C_MST_EN | USER_CTRL_FIFO_EN);
 
-    /* Configure PB0 (connected to INTA) as an interrupt source. */
+    /* Configure PD5 (connected to INTA) as an interrupt source. */
 
     SIM_SCGC5 |= SIM_SCGC5_PORTB;
-    PORTB_PCR0 = PORT_PCR_MUX(1) | PORT_PCR_IRQC(9);
+    PORTB_PCR2 = PORT_PCR_MUX(1) | PORT_PCR_IRQC(9);
 
     enable_interrupt(41);
     prioritize_interrupt(41, 1);

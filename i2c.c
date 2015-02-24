@@ -363,7 +363,7 @@ void i2c_initialize()
 
     /* Enable i2c function for PTB2, PTB3. */
 
-    PORTB_PCR2 = PORTB_PCR3 = (PORT_PCR_MUX(2) | PORT_PCR_ODE |
+    PORTB_PCR0 = PORTB_PCR1 = (PORT_PCR_MUX(2) | PORT_PCR_ODE |
                                PORT_PCR_DSE | PORT_PCR_PFE |
                                PORT_PCR_SRE);
 

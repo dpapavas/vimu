@@ -20,14 +20,16 @@ static struct {
     uint8_t serial[4][DATA_BUFFER_SIZE];
 }  buffers;
 
-static struct {
+static volatile struct {
     uint8_t *data;
     uint16_t length;
-} pending, buffered[2];
+} pending, transmit;
 
 static uint8_t oddbits;
 static uint8_t address, phase;
 static volatile uint8_t configuration;
+
+static usb_data_in_callback data_in_callback;
 
 static inline int process_setup_packet(uint16_t request, uint16_t value,
                                        uint16_t index, uint16_t length)
@@ -110,6 +112,11 @@ static inline int process_setup_packet(uint16_t request, uint16_t value,
             USB0_ENDPT(DATA_ENDPOINT) = (USB_ENDPT_EPRXEN | USB_ENDPT_EPTXEN |
                                          USB_ENDPT_EPHSHK);
 
+            /* Initialize the buffer pointers. */
+
+            reset_oddbit(DATA_ENDPOINT, 0);
+            reset_oddbit(DATA_ENDPOINT, 1);
+
             for (i = 0 ; i < 2 ; i += 1) {
                 bdtentry_t *r, *t;
 
@@ -119,27 +126,20 @@ static inline int process_setup_packet(uint16_t request, uint16_t value,
                 r->buffer = buffers.serial[i];
                 t->buffer = buffers.serial[2 + i];
 
-                /* Prime the first input BDT entry. In the case of
-                 * data endpont input transmissions we use the oddbits
-                 * to keep track of the BDT entry we should read next,
-                 * so don't toggle here. */
+                /* Prime the first input BDT entry. */
 
                 r->desc = bdt_descriptor (DATA_BUFFER_SIZE, i);
 
                 if (i == 0) {
                     r->desc |= BDT_DESC_OWN;
+                    toggle_oddbit (DATA_ENDPOINT, 0);
                 }
 
                 t->desc = bdt_descriptor (0, 0);
             }
 
-            /* Initialize the buffer pointers. */
-
-            reset_oddbit(DATA_ENDPOINT, 0);
-            reset_oddbit(DATA_ENDPOINT, 1);
-
-            buffered[1].data = NULL;
-            buffered[1].length = DATA_BUFFER_SIZE;
+            transmit.data = NULL;
+            transmit.length = DATA_BUFFER_SIZE;
 
             configuration = (uint8_t)value;
         }
@@ -182,6 +182,34 @@ static inline int process_setup_packet(uint16_t request, uint16_t value,
     USB0_ENDPT(CONTROL_ENDPOINT) |= USB_ENDPT_EPSTALL;
 
     return PHASE_COMPLETE;
+}
+
+static void handle_data_transfer (uint8_t status)
+{
+    bdtentry_t *entry;
+    int pid;
+
+    entry = &(bdt[status >> 2]);
+    pid = BDT_DESC_PID(entry->desc);
+
+    if (pid == BDT_PID_OUT) {
+        bdtentry_t *in;
+
+        assert (bdt_entry(DATA_ENDPOINT, 0,
+                          !oddbit(DATA_ENDPOINT, 0)) == entry);
+
+        if (data_in_callback) {
+            data_in_callback(entry->buffer, BDT_DESC_BYTE_COUNT(entry->desc));
+        }
+
+        in = bdt_entry(DATA_ENDPOINT, 0, oddbit(DATA_ENDPOINT, 0));
+        assert(!(in->desc & BDT_DESC_OWN));
+
+        in->desc = bdt_descriptor (DATA_BUFFER_SIZE, oddbit(DATA_ENDPOINT, 0));
+        in->desc |= BDT_DESC_OWN;
+
+        toggle_oddbit(DATA_ENDPOINT, 0);
+    }
 }
 
 static void handle_control_transfer (uint8_t status)
@@ -455,7 +483,8 @@ __attribute__((interrupt ("IRQ"))) void usb_isr()
 
         switch (n) {
         case CONTROL_ENDPOINT: handle_control_transfer(status); break;
-        case NOTIFICATION_ENDPOINT: case DATA_ENDPOINT: break;
+        case DATA_ENDPOINT: handle_data_transfer(status); break;
+        case NOTIFICATION_ENDPOINT: break;
         default:
             USB0_ENDPT(n) |= USB_ENDPT_EPSTALL;
         }
@@ -546,37 +575,6 @@ int usb_interrupt(uint8_t *buffer, int n)
     return 0;
 }
 
-int usb_read(char **buffer, int *length)
-{
-    volatile bdtentry_t *in;
-
-    if (configuration == 0) {
-        return 0;
-    }
-
-    /* Fetch more data if needed. */
-
-    in = bdt_entry(DATA_ENDPOINT, 0, oddbit(DATA_ENDPOINT, 0));
-    if (in->desc & BDT_DESC_OWN) {
-        return 0;
-    }
-
-    *buffer = in->buffer;
-    *length = BDT_DESC_BYTE_COUNT(in->desc);
-
-    /* Release the other BDT entry. */
-
-    toggle_oddbit(DATA_ENDPOINT, 0);
-
-    in = bdt_entry(DATA_ENDPOINT, 0, oddbit(DATA_ENDPOINT, 0));
-    assert(!(in->desc & BDT_DESC_OWN));
-
-    in->desc = bdt_descriptor (DATA_BUFFER_SIZE, oddbit(DATA_ENDPOINT, 0));
-    in->desc |= BDT_DESC_OWN;
-
-    return 1;
-}
-
 int usb_write(const char *s, int n, int flush)
 {
     volatile bdtentry_t *out;
@@ -589,21 +587,22 @@ int usb_write(const char *s, int n, int flush)
     /* If the current buffer has been filled and flushed to the USB
      * module fetch a new one. */
 
-    if (buffered[1].length == DATA_BUFFER_SIZE) {
+    if (transmit.length == DATA_BUFFER_SIZE) {
         out = bdt_entry(DATA_ENDPOINT, 1, oddbit (DATA_ENDPOINT, 1));
 
-        buffered[1].data = out->buffer;
-        buffered[1].length = 0;
+        transmit.data = out->buffer;
+        transmit.length = 0;
 
         sleep_while (out->desc & BDT_DESC_OWN);
+        assert(transmit.length != DATA_BUFFER_SIZE);
     }
 
     /* Break the write up if it's too large to fit in the current
      * buffer. */
 
     if (n > 0) {
-        m = DATA_BUFFER_SIZE - buffered[1].length < n ?
-            DATA_BUFFER_SIZE - buffered[1].length : n;
+        m = DATA_BUFFER_SIZE - transmit.length < n ?
+            DATA_BUFFER_SIZE - transmit.length : n;
     } else {
         m = 0;
     }
@@ -611,19 +610,19 @@ int usb_write(const char *s, int n, int flush)
     assert(m > 0 || n == 0);
 
     if (m > 0) {
-        memcpy(buffered[1].data, s, m);
+        memcpy(transmit.data, s, m);
 
-        buffered[1].data += m;
-        buffered[1].length += m;
+        transmit.data += m;
+        transmit.length += m;
     }
 
     /* Send the current buffer to the USB module. */
 
-    if (flush || buffered[1].length == DATA_BUFFER_SIZE) {
+    if (flush || transmit.length == DATA_BUFFER_SIZE) {
         out = bdt_entry(DATA_ENDPOINT, 1, oddbit (DATA_ENDPOINT, 1));
         assert(!(out->desc & BDT_DESC_OWN));
 
-        out->desc = bdt_descriptor (buffered[1].length,
+        out->desc = bdt_descriptor (transmit.length,
                                     oddbit (DATA_ENDPOINT, 1));
         out->desc |= BDT_DESC_OWN;
 
@@ -631,7 +630,7 @@ int usb_write(const char *s, int n, int flush)
     }
 
     if (flush) {
-        buffered[1].length = DATA_BUFFER_SIZE;
+        transmit.length = DATA_BUFFER_SIZE;
     }
 
     if (n > m) {
@@ -639,4 +638,9 @@ int usb_write(const char *s, int n, int flush)
     } else {
         return 0;
     }
+}
+
+void usb_set_data_in_callback(usb_data_in_callback new_callback)
+{
+    data_in_callback = new_callback;
 }

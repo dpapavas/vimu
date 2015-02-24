@@ -424,10 +424,10 @@ void sdio_initialize()
 
     /* Configure the pins needed by the SPI module. */
 
-    PORTC_PCR4 |= PORT_PCR_MUX(2);
-    PORTC_PCR6 |= PORT_PCR_MUX(2);
-    PORTC_PCR7 |= PORT_PCR_MUX(2) | PORT_PCR_PE | PORT_PCR_PS;
-    PORTD_PCR1 |= PORT_PCR_MUX(2);
+    PORTC_PCR4 = PORT_PCR_MUX(2);
+    PORTC_PCR6 = PORT_PCR_MUX(2);
+    PORTC_PCR7 = PORT_PCR_MUX(2) | PORT_PCR_PE | PORT_PCR_PS;
+    PORTD_PCR1 = PORT_PCR_MUX(2);
 
     /* Enable the SPI0 module as a master. */
 

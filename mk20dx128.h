@@ -20,6 +20,7 @@
 #define PORTC_PCR7 (*((volatile uint32_t *)0x4004b01c))
 
 #define PORTD_PCR1 (*((volatile uint32_t *)0x4004c004))
+#define PORTD_PCR3 (*((volatile uint32_t *)0x4004c00c))
 #define PORTD_PCR5 (*((volatile uint32_t *)0x4004c014))
 #define PORTD_PCR6 (*((volatile uint32_t *)0x4004c018))
 
@@ -87,6 +88,7 @@
 #define SIM_SOPT2 (*((volatile uint32_t *)0x40048004))
 #define SIM_SCGC4_USBOTG ((uint32_t)1 << 18)
 #define SIM_SCGC4_I2C0 ((uint32_t)1 << 6)
+#define SIM_SCGC4_UART0 ((uint32_t)1 << 10)
 #define SIM_SCGC5_LPTIMER ((uint32_t)1 << 0)
 #define SIM_SCGC5_PORTB ((uint32_t)1 << 10)
 #define SIM_SCGC5_PORTC ((uint32_t)1 << 11)
@@ -245,6 +247,7 @@
 #define NVIC_ISPR(n) (*((volatile uint32_t *)(0xe000e200 + 4 * (n))))
 #define NVIC_ICPR(n) (*((volatile uint32_t *)(0xe000e280 + 4 * (n))))
 #define NVIC_IPR(n)  (*((volatile uint32_t *)(0xe000e400 + 4 * (n))))
+
 #define enable_interrupt(n) (NVIC_ISER(n / 32) = ((uint32_t)1 << (n % 32)))
 #define disable_interrupt(n) (NVIC_ICER(n / 32) = ((uint32_t)1 << (n % 32)))
 #define pend_interrupt(n) (NVIC_ISPR(n / 32) = ((uint32_t)1 << (n % 32)))
@@ -253,7 +256,14 @@
     {                                                                   \
         int i = n / 4, j = 8 * (n % 4) + 4;                             \
                                                                         \
-        NVIC_IPR(i) = (NVIC_IPR(i) & ~((uint32_t)0xf << j)) | ((p & 0xf) << j); \
+        NVIC_IPR(i) = ((NVIC_IPR(i) & ~((uint32_t)0xf << j)) |          \
+                       ((p & 0xf) << j));                               \
+    }
+
+#define disable_all_interrupts()                                \
+    {                                                           \
+        NVIC_ICER(0) = ~(uint32_t)1;                            \
+        NVIC_ICER(1) = ~(uint32_t)1;                            \
     }
 
 #define sleep() asm("wfi")
@@ -277,6 +287,10 @@
 #define SCB_BFAR (*((volatile uint32_t *)(0xe000ed38)))
 #define SCB_CFSR_MMARVALID ((uint32_t)1 << 7)
 #define SCB_CFSR_BFARVALID ((uint32_t)1 << 15)
+#define SCB_AIRCR (*((volatile uint32_t *)(0xe000ed0c)))
+
+#define request_reset() SCB_AIRCR = 0x5fa0004; while(1)
+#define request_reboot() asm("bkpt")
 
 #define CRC_CRC32 *(volatile uint32_t *)0x40032000
 #define CRC_CRC16 *(volatile uint16_t *)0x40032000
@@ -291,16 +305,90 @@
 #define LPTMR0_CMR (*((volatile uint32_t *)(0x40040008)))
 #define LPTMR0_CNR (*((volatile uint32_t *)(0x4004000c)))
 
-#define LPTMR0_CSR_TEN ((uint32_t)1 << 0)
-#define LPTMR0_CSR_TMS ((uint32_t)1 << 1)
-#define LPTMR0_CSR_TFC ((uint32_t)1 << 2)
-#define LPTMR0_CSR_TPP ((uint32_t)1 << 3)
-#define LPTMR0_CSR_TPS(n) (((uint32_t)(n) & 0b11) << 4)
-#define LPTMR0_CSR_TIE ((uint32_t)1 << 6)
-#define LPTMR0_CSR_TCF ((uint32_t)1 << 7)
+#define LPTMR_CSR_TEN ((uint32_t)1 << 0)
+#define LPTMR_CSR_TMS ((uint32_t)1 << 1)
+#define LPTMR_CSR_TFC ((uint32_t)1 << 2)
+#define LPTMR_CSR_TPP ((uint32_t)1 << 3)
+#define LPTMR_CSR_TPS(n) (((uint32_t)(n) & 0b11) << 4)
+#define LPTMR_CSR_TIE ((uint32_t)1 << 6)
+#define LPTMR_CSR_TCF ((uint32_t)1 << 7)
 
-#define LPTMR0_PSR_PCS(n) (((uint32_t)(n) & 0b11) << 0)
-#define LPTMR0_PSR_PBYP ((uint32_t)1 << 2)
-#define LPTMR0_PSR_PRESCALE(n) (((uint32_t)(n) & 0b1111) << 3)
+#define LPTMR_PSR_PCS(n) (((uint32_t)(n) & 0b11) << 0)
+#define LPTMR_PSR_PBYP ((uint32_t)1 << 2)
+#define LPTMR_PSR_PRESCALE(n) (((uint32_t)(n) & 0b1111) << 3)
+
+#define UART0_BDH (*((volatile uint8_t *)0x4006a000))
+#define UART0_BDL (*((volatile uint8_t *)0x4006a001))
+#define UART0_C1 (*((volatile uint8_t *)0x4006a002))
+#define UART0_C2 (*((volatile uint8_t *)0x4006a003))
+#define UART0_S1 (*((volatile uint8_t *)0x4006a004))
+#define UART0_S2 (*((volatile uint8_t *)0x4006a005))
+#define UART0_C3 (*((volatile uint8_t *)0x4006a006))
+#define UART0_D (*((volatile uint8_t *)0x4006a007))
+#define UART0_C4 (*((volatile uint8_t *)0x4006a00a))
+#define UART0_C5 (*((volatile uint8_t *)0x4006a00b))
+#define UART0_ED (*((volatile uint8_t *)0x4006a00c))
+#define UART0_PFIFO (*((volatile uint8_t *)0x4006a010))
+#define UART0_CFIFO (*((volatile uint8_t *)0x4006a011))
+#define UART0_SFIFO (*((volatile uint8_t *)0x4006a012))
+#define UART0_TWFIFO (*((volatile uint8_t *)0x4006a013))
+#define UART0_TCFIFO (*((volatile uint8_t *)0x4006a014))
+#define UART0_RWFIFO (*((volatile uint8_t *)0x4006a015))
+#define UART0_RCFIFO (*((volatile uint8_t *)0x4006a016))
+
+#define UART_BDH_SBR(n) (((uint8_t)(n) & 0b11111) << 0)
+#define UART_BDH_RXEDGIE ((uint8_t)1 << 7)
+#define UART_C1_LOOPS ((uint8_t)1 << 7)
+#define UART_C1_M ((uint8_t)1 << 4)
+#define UART_C1_PE ((uint8_t)1 << 1)
+#define UART_C1_PT ((uint8_t)1 << 0)
+
+#define UART_C2_TIE ((uint8_t)1 << 7)
+#define UART_C2_RIE ((uint8_t)1 << 5)
+#define UART_C2_TE ((uint8_t)1 << 3)
+#define UART_C2_RE ((uint8_t)1 << 2)
+
+#define UART_S1_TDRE ((uint8_t)1 << 7)
+#define UART_S1_RDRF ((uint8_t)1 << 5)
+#define UART_S1_OR ((uint8_t)1 << 3)
+#define UART_S1_NF ((uint8_t)1 << 2)
+#define UART_S1_FE ((uint8_t)1 << 1)
+#define UART_S1_PF ((uint8_t)1 << 0)
+
+#define UART_S2_RXEDGIF ((uint8_t)1 << 6)
+#define UART_S2_MSBF ((uint8_t)1 << 5)
+#define UART_S2_RAF ((uint8_t)1 << 0)
+
+#define UART_C3_ORIE ((uint8_t)1 << 3)
+#define UART_C3_NEIE ((uint8_t)1 << 2)
+#define UART_C3_FEIE ((uint8_t)1 << 1)
+#define UART_C3_PEIE ((uint8_t)1 << 0)
+
+#define UART_C4_BRFA(n) (((uint8_t)(n) & 0b11111) << 0)
+
+#define UART_ED_NOISY ((uint8_t)1 << 6)
+#define UART_ED_PARITYE ((uint8_t)1 << 7)
+
+#define UART_PFIFO_TXFE ((uint8_t)1 << 7)
+#define UART_PFIFO_TXFIFOSIZE(n) ((n >> 4) & 0b111)
+#define UART_PFIFO_RXFE ((uint8_t)1 << 3)
+#define UART_PFIFO_RXFIFOSIZE(n) ((n >> 0) & 0b111)
+
+#define UART_CFIFO_TXFLUSH ((uint8_t)1 << 7)
+#define UART_CFIFO_RXFLUSH ((uint8_t)1 << 6)
+#define UART_CFIFO_RXOFE ((uint8_t)1 << 2)
+#define UART_CFIFO_TXOFE ((uint8_t)1 << 1)
+#define UART_CFIFO_RXUFE ((uint8_t)1 << 0)
+
+#define UART_CFIFO_TXEMPT ((uint8_t)1 << 7)
+#define UART_CFIFO_RXEMPT ((uint8_t)1 << 6)
+#define UART_CFIFO_RXOF ((uint8_t)1 << 2)
+#define UART_CFIFO_TXOF ((uint8_t)1 << 1)
+#define UART_CFIFO_RXUF ((uint8_t)1 << 0)
+
+#define set_uart_baud_rate(n, rate)                           \
+    UART##n##_BDH = UART_BDH_SBR(F_CPU / 4096 / rate);        \
+    UART##n##_BDL = (uint8_t)(F_CPU / 16 / rate);             \
+    UART##n##_C4 = UART_C4_BRFA(F_CPU * 2 / rate);
 
 #endif

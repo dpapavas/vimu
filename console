@@ -1,0 +1,85 @@
+#!/bin/bash
+
+history -r .console_history
+quit=false
+
+# Suppress error messages to get rid of kill notifications.
+
+#exec 2>/dev/null
+
+while ! $quit; do
+    device=$(ls -1 /dev | grep ttyACM | head -n 1)
+
+    # Wait for the file to become available, if necessary.
+
+    if [ ! $device ]; then
+        echo "Waiting for device to come on-line..."
+        
+        while file=$(inotifywait /dev/ -qe create --format %f); do
+            if [[ $file = ttyACM* ]]; then
+                device=$file
+                break;
+            fi
+        done
+
+        while [ ! -w /dev/$device -o ! -w /dev/$device ]; do
+            sleep 1
+        done
+    fi
+    
+    echo "Using device $device."
+
+    # Set up a redirect from stdin to fd 3.
+
+    exec 3<&0
+
+    # Start the console in a subprocess and let it source its input from
+    # fd 3.
+
+    stty 4000000 -icrnl -onlcr -isig -icanon -opost -echo < /dev/$device
+
+    cat /dev/$device &
+    catpid=$!
+    disown $catpid
+
+    (
+        while read -e line; do
+            history -s "$line"
+            echo "$line" > /dev/$device
+        done
+    ) 0<&3 &
+
+    readpid=$!
+
+    trap "kill $readpid" SIGINT
+    
+    # Wait for the device to disappear.
+
+    (
+        while file=$(inotifywait /dev/ -qe delete --format %f); do
+            if [ "$file" = "$device" ]; then
+                kill $readpid 2>/dev/null
+                break
+            fi
+        done
+    ) &
+
+    waitpid=$!
+    disown $waitpid
+
+    if wait $readpid 2>/dev/null; then
+        quit=true
+    else
+        echo "Device went off-line."
+    fi
+
+    trap - SIGINT
+    pkill -P $readpid,$catpid,$waitpid 2>/dev/null
+    kill $readpid $catpid $waitpid 2>/dev/null
+
+    # Restore stdin and close fd 3.
+
+    exec 0<&3 3<&-
+done
+
+history -w .console_history

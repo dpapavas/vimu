@@ -14,25 +14,15 @@
 #include "util.h"
 #include "i2c.h"
 
-static void callback()
-{
-    log_toggle();
-}
-
 int main()
 {
     usb_initialize();
+    usbserial_await_rts();
     sdio_initialize();
     i2c_initialize();
     button_initialize();
-
-    button_set_callback(callback);
-
-    while(1) {
-         if (usbserial_is_rts()) {
-            console_cycle();
-        }
-    }
+    console_initialize();
+    console_enter();
 
     return 0;
 }

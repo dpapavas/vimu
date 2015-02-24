@@ -98,7 +98,7 @@ static uint8_t configuration_descriptor[CONFIGURATION_DESCRIPTOR_SIZE] = {
     1,                                  /* bconfigurationvalue */
     0,                                  /* iConfiguration */
     0xc0,                               /* bmAttributes */
-    150,                                /* bMaxPower */
+    250,                                /* bMaxPower */
 
     /* Interface descriptor. */
 
@@ -186,5 +186,9 @@ typedef struct {
     uint32_t desc;
     void *buffer;
 } bdtentry_t;
+
+typedef void (*usb_data_in_callback)(uint8_t *buffer, int length);
+
+void usb_set_data_in_callback(usb_data_in_callback new_callback);
 
 #endif

@@ -8,23 +8,31 @@
 #include "util.h"
 #include "usbcommon.h"
 #include "usbserial.h"
+#include "sdio.h"
+#include "fusion.h"
 #include "log.h"
 
 typedef enum {
     NONE = 0,
     IDENTIFIER,
     INTEGER,
+    END_OF_STATEMENT,
 } TokenType;
 
 typedef enum {
-    /* Commands with no argument. */
+    PRIMING = 0,
+    PRIMED,
+    FIRED,
+    ERROR,
+} ConsoleState;
 
+typedef enum {
+    BREAK,
+    RESET,
     INITIALIZE,
+    BLOCKS,
     TOGGLE,
     LIST,
-
-    /* Commands with one argument. */
-
     LOG,
     REPLAY,
 
@@ -32,52 +40,57 @@ typedef enum {
 } Identifier;
 
 static char *identifiers[IDENTIFIERS_N] = {
+    [BREAK] = "break",
+    [RESET] = "reset",
     [INITIALIZE] = "initialize",
+    [BLOCKS] = "blocks",
     [TOGGLE] = "toggle",
     [LIST] = "list",
-
     [LOG] = "log",
     [REPLAY] = "replay",
 };
 
-static void execute(uint8_t command, uint32_t argument)
-{
-    turn_on_led();
-    switch(command) {
-    case INITIALIZE: log_initialize(); break;
-    case TOGGLE: log_toggle(); break;
-    case LIST: log_list(); break;
-    case LOG: usbserial_printf("log %d\n", argument); break;
-    default: assert(0);
-    }
-    turn_off_led();
-}
+static volatile uint32_t tokens[4];
+static volatile uint8_t tokens_n;
+static volatile ConsoleState state = PRIMING;
 
-static void consume(TokenType type, uint32_t token)
+static void dump_blocks(int from, int to)
 {
-    static uint8_t command = IDENTIFIERS_N;
+    int i, j, k;
 
-    if (command == IDENTIFIERS_N) {
-        if(type == IDENTIFIER && token >= INITIALIZE && token <= REPLAY) {
-            if (token < LOG) {
-                execute(token, 0);
-            } else {
-                command = token;
+    for (k = from ; k <= to ; k += 1) {
+        uint8_t buffer[512];
+
+        sdio_read_single_block(k, buffer);
+        sleep_while(sdio_is_busy());
+
+        for (i = 0 ; i < 16 ; i += 1) {
+            for (j = 0 ; j < 32 ; j += 1) {
+                usbserial_printf("%2x ", buffer[i * 32 + j]);
             }
-        } else {
-            usbserial_printf("Not a command.\n");
+
+            usbserial_printf("\n");
         }
-    } else {
-        execute(command, token);
-        command = IDENTIFIERS_N;
+
+        usbserial_printf("\n");
     }
 }
 
-static void parse_input (uint8_t *data, int length)
+static void usb_data_in (uint8_t *data, int length)
 {
     static TokenType type;
     static uint32_t token;
     int i;
+
+    /* Disregard any further input once a command has been read and
+     * until it is executed. */
+
+    if (state == PRIMED) {
+        return;
+    } else if (state == FIRED) {
+        memset((void *)tokens, 0, sizeof(tokens));
+        tokens_n = 0; state = PRIMING;
+    }
 
     /* printf (">> type = %d, j = %d\n", type, j); */
 
@@ -87,7 +100,7 @@ static void parse_input (uint8_t *data, int length)
         if (type == NONE) {
             /* Determine the token type. */
 
-            if (isspace((int)data[i])) {
+            if (isblank((int)data[i])) {
                 continue;
             }
 
@@ -95,29 +108,59 @@ static void parse_input (uint8_t *data, int length)
                 type = IDENTIFIER;
             } else if (isdigit((int)data[i])) {
                 type = INTEGER;
+            } else if (data[i] == '\r' || data[i] == '\n' || data[i] == ',') {
+                type = END_OF_STATEMENT;
             } else {
                 usbserial_printf("Can't tokenize '%c'.\n", data[i]);
                 break;
             }
         }
 
-        if (type == IDENTIFIER) {
+        switch (type) {
+        case END_OF_STATEMENT:
+            type = NONE; state = (state == ERROR) ? FIRED : PRIMED;
+
+            break;
+
+        case IDENTIFIER: {
             static uint8_t j;
 
             if (!isalnum((int)data[i]) && data[i] != '_') {
+                /* Match bits are stored inverted (set bit signifies
+                 * mismatch (for a reason). */
+
+                token = ~token & ((1 << IDENTIFIERS_N) - 1);
+
                 /* Consume the token. */
 
-                token = ffs(~token) - 1;
-
-                if (token >= IDENTIFIERS_N) {
+                if (token == 0) {
                     usbserial_printf("Unknown identifier.\n");
+                    tokens[tokens_n] = 0; state = ERROR;
+                } else if ((token & (token - 1)) != 0) {
+                    int k;
+
+                    /* More than one bit set.  Command is
+                     * ambiguous. */
+
+                    usbserial_printf("Command ambiguous.  "
+                                     "Possible candidates:\n");
+
+                    for (k = 0 ; k < IDENTIFIERS_N ; k += 1) {
+                        if (token & (1 << k)) {
+                            usbserial_printf("%s ", identifiers[k]);
+                        }
+                    }
+
+                    usbserial_printf("\n");
+
+                    tokens[tokens_n] = 0; state = ERROR;
                 } else {
-                    consume(IDENTIFIER, token);
+                    tokens[tokens_n] = ffs(token) - 1;
                 }
 
                 /* Reset. */
 
-                type = NONE; token = j = 0; i -= 1;
+                tokens_n += 1; type = NONE; token = j = 0; i -= 1;
             } else {
                 int k;
 
@@ -134,27 +177,63 @@ static void parse_input (uint8_t *data, int length)
 
                 j += 1;
             }
-        } else if (type == INTEGER) {
+
+            break;
+        }
+        case INTEGER:
             if (!isdigit((int)data[i])) {
                 /* Consume the token and reset. */
 
-                consume(INTEGER, token);
-                type = NONE; token = 0; i -= 1;
+                tokens[tokens_n] = token;
+                tokens_n += 1; type = NONE; token = 0; i -= 1;
             } else {
                 token = 10 * token + (data[i] - '0');
             }
-        } else {
+
+            break;
+
+        default:
             assert(0);
         }
     }
 }
 
-void console_cycle()
+void console_initialize()
 {
-    char *buffer;
-    int length;
+    usb_set_data_in_callback(usb_data_in);
+    usbserial_set_state(SERIAL_STATE_DSR);
+}
 
-    if (usb_read (&buffer, &length)) {
-        parse_input ((uint8_t *)buffer, length);
+void console_enter()
+{
+    while (1) {
+        sleep_while(state != PRIMED || tokens_n == 0);
+
+        switch(tokens[0]) {
+        case BREAK: request_reboot(); break;
+        case RESET: request_reset(); break;
+        case INITIALIZE: log_initialize(); break;
+
+        case BLOCKS:
+            switch(tokens_n) {
+            case 1: break;
+            case 2: dump_blocks(tokens[1], tokens[1]); break;
+            case 3: dump_blocks(tokens[1], tokens[2]); break;
+            }
+
+            break;
+
+        case TOGGLE: log_toggle(); break;
+        case LIST: log_list(); break;
+        case LOG: /* usbserial_printf("log %d\n", tokens[1]); */ break;
+
+        case REPLAY:
+            log_replay(tokens[1], tokens[2]);
+            break;
+
+        default: assert(0);
+        }
+
+        state = FIRED;
     }
 }

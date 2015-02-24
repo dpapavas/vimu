@@ -116,8 +116,11 @@ int usbserial_printf(const char *format, ...)
                     plus = 1;
                 } else if (*c == ' ') {
                     plus = 2;
-                } else if (*c >= '0' && *c <= '9' && width < 0) {
-                    width = strtol(c, (char **)&c, 10);
+                } else if (((*c >= '0' && *c <= '9') || *c == '.') &&
+                           width < 0) {
+                    if (*c != '.') {
+                        width = strtol(c, (char **)&c, 10);
+                    }
 
                     if (*c == '.') {
                         precision = strtol(c + 1, (char **)&c, 10);

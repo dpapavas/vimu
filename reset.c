@@ -13,31 +13,42 @@ extern int main (void);
 
 static __attribute__((naked, used)) void diagnose_fault (unsigned long *sp)
 {
+    int i;
+
     if (usbserial_is_rts()) {
         prioritize_interrupt(35, 0);
 
         usbserial_printf("Hard fault\n"
-                         "CFSR: %8x\tHFSR: %8x",
+                         "CFSR: \t%8x\n"
+                         "HFSR: \t%8x\n",
                          SCB_CFSR, SCB_HFSR);
 
         if (SCB_CFSR & SCB_CFSR_MMARVALID) {
-            usbserial_printf("\tMMAR: %8x", SCB_MMAR);
+            usbserial_printf("MMAR: \t%8x\n", SCB_MMAR);
         }
 
         if (SCB_CFSR & SCB_CFSR_BFARVALID) {
-            usbserial_printf("\tBFAR: %8x", SCB_BFAR);
+            usbserial_printf("BFAR: \t%8x\n", SCB_BFAR);
         }
 
-        usbserial_printf("\nr0: %8x\tr1: %8x\tr2: %8x\tr3: %8x\tr12: %8x\n"
-                         "lr: %8x\tpc: %8x\tpsr: %8x\n",
+        usbserial_printf("r0: \t%8x\n"
+                         "r1: \t%8x\n"
+                         "r2: \t%8x\n"
+                         "r3: \t%8x\n"
+                         "r12: \t%8x\n"
+                         "lr: \t%8x\n"
+                         "pc: \t%8x\n"
+                         "psr: \t%8x\n",
                          sp[0], sp[1], sp[2], sp[3],
                          sp[4], sp[5], sp[6], sp[7]);
     }
 
-    while(1) {
+    for (i = 0 ; i < 20 ; i += 1) {
         delay_ms(150);
         toggle_led();
     }
+
+    asm("bkpt");
 }
 
 static __attribute__((naked, noreturn, interrupt ("IRQ"))) void fault_isr(void)
@@ -47,15 +58,15 @@ static __attribute__((naked, noreturn, interrupt ("IRQ"))) void fault_isr(void)
      * pointer to the diagnostic function. */
 
     __asm__ volatile(
-        "movs r0, #4\n\t"
-        "mov r1, lr\n\t"
-        "tst r0, r1\n\t"
-        "beq 1f\n\t"
-        "mrs r0, psp\n\t"
-        "bl diagnose_fault\n\t"
-        "1:\n\t"
-        "mrs r0, msp\n\t"
-        "bl diagnose_fault\n\t"
+        "movs r0, #4       \n\t"
+        "mov r1, lr        \n\t"
+        "tst r0, r1        \n\t"
+        "beq 1f            \n\t"
+        "mrs r0, psp       \n\t"
+        "bl diagnose_fault \n\t"
+        "1:                \n\t"
+        "mrs r0, msp       \n\t"
+        "bl diagnose_fault \n\t"
         );
 }
 
@@ -262,12 +273,20 @@ void reset(void)
     MCG_C1 = MCG_C1_CLKS(0) | MCG_C1_FRDIV(4);
     while ((MCG_S & MCG_S_CLKST_MASK) != MCG_S_CLKST(3));
 
-    /* Enable the clock to PORTC, and set C3 (the led) as a GPIO
-     * output. */
+    /* Set up the LED GPIO outputs. */
 
-    SIM_SCGC5 |= SIM_SCGC5_PORTC;
-    PORTC_PCR3 = PORT_PCR_MUX(1) | PORT_PCR_DSE;
-    GPIOC_PDDR = ((uint32_t)1 << 3);
+    SIM_SCGC5 |= SIM_SCGC5_PORTD | SIM_SCGC5_PORTC;
+    PORTD_PCR6 = PORT_PCR_MUX(1) | PORT_PCR_DSE;
+    GPIOD_PDDR |= ((uint32_t)1 << 6);
+    GPIOD_PSOR = ((uint32_t)1 << 6);
+
+    PORTC_PCR1 = PORT_PCR_MUX(1) | PORT_PCR_DSE;
+    GPIOC_PDDR |= ((uint32_t)1 << 1);
+    GPIOC_PSOR = ((uint32_t)1 << 1);
+
+    PORTC_PCR2 = PORT_PCR_MUX(1) | PORT_PCR_DSE;
+    GPIOC_PDDR |= ((uint32_t)1 << 2);
+    GPIOC_PCOR = ((uint32_t)1 << 2);
 
     /* Configure the SysTick timer. */
 
@@ -284,5 +303,5 @@ void reset(void)
 
     main();
 
-    while(1) sleep();
+    sleep_while(1);
 }
