@@ -38,6 +38,10 @@ static volatile struct {
     int busy;
 } context;
 
+static uint64_t _t;
+static float _m[2], _M[2];
+static int _n;
+
 static void reset_command()
 {
     /* Clear the FIFOs. */
@@ -62,6 +66,18 @@ static void finalize_command()
     context.busy = 0;
     turn_off_led();
 
+    {
+        float d = (float)(cycles() - _t) / cycles_in_ms(1);
+        _m[1] = _m[1] + (d - _m[1]) / _n;
+        if(_M[1] < d) _M[1] = d;
+    }
+
+    if ((_n % 1000) == 0) {
+        usbserial_trace("%f + %f = %f\nMax: %f, %f\n",
+                        _m[0], _m[1], _m[0] + _m[1],
+                        _M[0], _M[1]);
+    }
+
     if(callback) {
         callback();
     }
@@ -72,7 +88,11 @@ static void initialize_command(uint8_t cmd, uint32_t arg,
 {
     /* Wait if a previous transaction is pending. */
 
+    assert (!context.busy);
     sleep_while (context.busy);
+
+    _n += 1;
+    _t = cycles();
 
     /* Set up the command. */
 
@@ -167,6 +187,14 @@ __attribute__((interrupt ("IRQ"))) void spi0_isr(void)
                     reset_command();
                     break;
                 } else {
+                    {
+                        uint64_t c = cycles();
+                        float d = (float)(cycles() - _t) / cycles_in_ms(1);
+                        _m[0] = _m[0] + (d - _m[0]) / _n;
+                        if(_M[0] < d) _M[0] = d;
+                        _t = c;
+                    }
+
                     /* Set up the CRC module to calculate the CRC16
                      * checksum. */
 

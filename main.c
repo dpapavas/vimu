@@ -79,6 +79,25 @@ int main()
     i2c_initialize();
     button_initialize();
     button_set_callback(foo);
+
+    {
+        static uint8_t buffer[512];
+        uint64_t c, t;
+        int i;
+
+        t = cycles();
+
+        for (i = 0 ; i < 100000 ; i += 1) {
+            sdio_write_single_block(i, buffer);
+        }
+
+        sleep_while(sdio_is_busy());
+        c = cycles();
+
+        usbserial_trace("%f kb/s\n",
+                        (float)(i / 2) / ((float)(c - t) / cycles_in_ms(1000)));
+    }
+
     console_initialize();
 
     console_enter();

@@ -25,7 +25,6 @@ static void data_ready(int status, int count)
 
     if(callback) {
         if (available > 0) {
-        turn_on_led();
             fetch_more_data();
         }
 
