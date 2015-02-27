@@ -28,51 +28,61 @@ typedef enum {
 
 typedef enum {
     BREAK,
+    CARD,
     RESET,
     INITIALIZE,
     BLOCKS,
-    TOGGLE,
+    RECORD,
     LIST,
     LOG,
     REPLAY,
+    TEST,
 
     IDENTIFIERS_N,
 } Identifier;
 
 static char *identifiers[IDENTIFIERS_N] = {
     [BREAK] = "break",
+    [CARD] = "card",
     [RESET] = "reset",
     [INITIALIZE] = "initialize",
     [BLOCKS] = "blocks",
-    [TOGGLE] = "toggle",
+    [RECORD] = "record",
     [LIST] = "list",
     [LOG] = "log",
     [REPLAY] = "replay",
+    [TEST] = "test",
 };
 
 static volatile uint32_t tokens[4];
 static volatile uint8_t tokens_n;
 static volatile ConsoleState state = PRIMING;
 
-static void dump_blocks(int from, int to)
+static uint8_t *dump_block(SDTransactionStatus status,
+                           uint8_t *buffer,
+                           void *userdata)
 {
-    int i, j, k;
+    int i, j;
+    uint32_t *n;
 
-    for (k = from ; k <= to ; k += 1) {
-        uint8_t buffer[512];
+    assert(status != SDIO_FAILED);
 
-        sdio_read_single_block(k, buffer);
-        sleep_while(sdio_is_busy());
-
-        for (i = 0 ; i < 16 ; i += 1) {
-            for (j = 0 ; j < 32 ; j += 1) {
-                usbserial_printf("%2x ", buffer[i * 32 + j]);
-            }
-
-            usbserial_printf("\n");
+    for (i = 0 ; i < 16 ; i += 1) {
+        for (j = 0 ; j < 32 ; j += 1) {
+            usbserial_printf("%2x ", buffer[i * 32 + j]);
         }
 
         usbserial_printf("\n");
+    }
+
+    usbserial_printf("\n");
+
+    n = (uint32_t *)userdata;
+
+    if ((*n -= 1) > 0) {
+        return buffer;
+    } else {
+        return NULL;
     }
 }
 
@@ -214,21 +224,31 @@ void console_enter()
         case RESET: request_reset(); break;
         case INITIALIZE: log_initialize(); break;
 
-        case BLOCKS:
-            switch(tokens_n) {
-            case 1: break;
-            case 2: dump_blocks(tokens[1], tokens[1]); break;
-            case 3: dump_blocks(tokens[1], tokens[2]); break;
-            }
+        case CARD: usbserial_printf("%x\n", sdio_get_status()); break;
+        case BLOCKS: {
+            /* switch(tokens_n) { */
+            /* case 1: break; */
+            /* case 2: dump_blocks(tokens[1], tokens[1]); break; */
+            /* case 3: dump_blocks(tokens[1], tokens[2]); break; */
+            /* } */
+            uint8_t buffer[512];
+            uint32_t n = 3;
+
+            sdio_read_multiple_blocks(0, buffer, dump_block, &n);
+            sleep_while(sdio_is_busy());
+        }
 
             break;
 
-        case TOGGLE: log_toggle(); break;
+        case RECORD: log_record(tokens[1]); break;
         case LIST: log_list(); break;
         case LOG: /* usbserial_printf("log %d\n", tokens[1]); */ break;
 
         case REPLAY:
             log_replay(tokens[1], tokens[2]);
+            break;
+
+        case TEST:
             break;
 
         default: assert(0);

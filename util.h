@@ -14,7 +14,7 @@
                                                                 \
         while(1) {                                              \
             delay_ms(50);                                       \
-            toggle_led();                                       \
+            /* toggle_led(); */                                       \
         }                                                       \
     }
 

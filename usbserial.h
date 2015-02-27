@@ -12,8 +12,7 @@
 #define SERIAL_STATE_DCD (1 << 0)
 #define SERIAL_STATE_DSR (1 << 1)
 
-volatile uint8_t line_state;
-volatile uint8_t line_coding[7];
+void usbserial_initialize();
 
 int usbserial_is_dtr();
 void usbserial_await_dtr();

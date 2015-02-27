@@ -11,6 +11,7 @@
 #define RESET_PIT()                                     \
     unpend_interrupt(30);                               \
     PIT_TFLG(0) |= PIT_TFLG_TIF;                        \
+    PIT_TCTRL(0) = 0;                                   \
     PIT_LDVAL(0) = F_BUS / 1000000 * TIMEOUT - 1;       \
     PIT_TCTRL(0) = PIT_TCTRL_TIE;                       \
     PIT_TCTRL(0) |= PIT_TCTRL_TEN;
@@ -21,6 +22,7 @@
     PIT_TCTRL(0) = 0;
 
 #define RESET_PIT_NOINT()                               \
+    PIT_TCTRL(0) = 0;                                   \
     PIT_LDVAL(0) = F_BUS / 1000000 * TIMEOUT - 1;       \
     PIT_TCTRL(0) |= PIT_TCTRL_TEN;
 

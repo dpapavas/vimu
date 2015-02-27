@@ -3,13 +3,25 @@
 
 #include <stdint.h>
 
-typedef void (*sdio_command_finished_callback)();
+typedef enum {
+    SDIO_IN_PROGRESS,
+    SDIO_FAILED,
+} SDTransactionStatus;
+
+typedef uint8_t *(*sdio_transaction_callback)(SDTransactionStatus status,
+                                              uint8_t *buffer,
+                                              void *userdata);
 
 void sdio_initialize();
 void sdio_read_single_block(int32_t addr, uint8_t *buffer);
+void sdio_read_multiple_blocks(int32_t addr, uint8_t *buffer,
+                               sdio_transaction_callback callback,
+                               void *userdata);
 void sdio_write_single_block(int32_t addr, uint8_t *buffer);
+void sdio_write_multiple_blocks(int32_t addr, uint8_t *buffer,
+                                sdio_transaction_callback callback,
+                                void *userdata);
 uint8_t sdio_get_status();
 volatile int sdio_is_busy();
-void sdio_set_callback(sdio_command_finished_callback new);
 
 #endif

@@ -26,6 +26,7 @@ $(SOBJS) : %.o : %.s
 
 all: $(TARGET).hex
 install: $(TARGET).hex
+	./sendbreak /dev/ttyACM0
 	./loader -mmcu=mk20dx128  -w -v $(TARGET).hex
 
 $(TARGET).elf: $(OBJS) $(SOBJS) mk20dx128.ld

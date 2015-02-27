@@ -242,6 +242,7 @@ void reset(void)
                                                   very high frequency range. */
 
     /* Switch to crystal as clock source, FLL input = 16 MHz / 512 */
+
     MCG_C1 =  MCG_C1_CLKS(2) | MCG_C1_FRDIV(4);
 
     /* Wait for crystal oscillator to stabilize. */

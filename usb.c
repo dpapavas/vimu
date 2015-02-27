@@ -25,11 +25,32 @@ static volatile struct {
     uint16_t length;
 } pending, transmit;
 
-static uint8_t oddbits;
-static uint8_t address, phase;
+static uint8_t oddbits, address;
 static volatile uint8_t configuration;
 
+static uint8_t line_state, line_coding[7];
+static uint16_t break_duration;
+
+static enum {
+    NO_CALLBACK,
+    LINE_STATE_CALLBACK,
+    LINE_CODING_CALLBACK,
+    SEND_BREAK_CALLBACK,
+} callback;
+
+static enum {
+    PHASE_SETUP,
+    PHASE_DATA_IN,
+    PHASE_DATA_OUT,
+    PHASE_STATUS_IN,
+    PHASE_STATUS_OUT,
+    PHASE_COMPLETE,
+} phase;
+
 static usb_data_in_callback data_in_callback;
+static usb_line_state_callback line_state_callback;
+static usb_line_coding_callback line_coding_callback;
+static usb_send_break_callback send_break_callback;
 
 static inline int process_setup_packet(uint16_t request, uint16_t value,
                                        uint16_t index, uint16_t length)
@@ -163,6 +184,7 @@ static inline int process_setup_packet(uint16_t request, uint16_t value,
         pending.length = 0;
 
         line_state = (uint8_t)value;
+        callback = LINE_STATE_CALLBACK;
 
         return PHASE_DATA_OUT;
 
@@ -172,6 +194,15 @@ static inline int process_setup_packet(uint16_t request, uint16_t value,
         pending.data = (uint8_t *)line_coding;
         pending.length = (length < sizeof(line_coding) ?
                                 length : sizeof(line_coding));
+        callback = LINE_CODING_CALLBACK;
+
+        return PHASE_DATA_OUT;
+
+    case SETUP_SEND_BREAK:
+        /* SEND_BREAK request. */
+
+        break_duration = value;
+        callback = SEND_BREAK_CALLBACK;
 
         return PHASE_DATA_OUT;
     }
@@ -391,6 +422,26 @@ static void handle_control_transfer (uint8_t status)
         toggle_oddbit (CONTROL_ENDPOINT, 0);
 
         phase = PHASE_SETUP;
+
+        switch (callback) {
+        case NO_CALLBACK: break;
+        case LINE_STATE_CALLBACK:
+            if(line_state_callback) {
+                line_state_callback(line_state);
+            }
+
+            break;
+        case LINE_CODING_CALLBACK:
+            if(line_coding_callback) {
+                line_coding_callback(line_coding);
+            }
+
+            break;
+        case SEND_BREAK_CALLBACK:
+            if(send_break_callback) {
+                send_break_callback(break_duration);
+            }
+        }
     }
 }
 
@@ -498,7 +549,7 @@ void usb_initialize()
     /* Enable the USB interrupt but give it a low priority. */
 
     enable_interrupt(35);
-    prioritize_interrupt(35, 14);
+    prioritize_interrupt(35, 4);
 
     /* Set the USB clock source to MGCPLL with a divider for 48Mhz and
      * enable the USB clock. */
@@ -643,4 +694,18 @@ int usb_write(const char *s, int n, int flush)
 void usb_set_data_in_callback(usb_data_in_callback new_callback)
 {
     data_in_callback = new_callback;
+}
+
+void usb_set_line_state_callback(usb_line_state_callback new_callback)
+{
+    line_state_callback = new_callback;
+}
+void usb_set_line_coding_callback(usb_line_coding_callback new_callback)
+{
+    line_coding_callback = new_callback;
+}
+
+void usb_set_send_break_callback(usb_send_break_callback new_callback)
+{
+    send_break_callback = new_callback;
 }

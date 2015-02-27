@@ -43,18 +43,12 @@
 #define SETUP_SET_LINE_CODING 0x2021
 #define SETUP_GET_LINE_CODING 0x21a1
 #define SETUP_SET_CONTROL_LINE_STATE 0x2221
+#define SETUP_SEND_BREAK 0x2321
 
 #define DESCRIPTOR_TYPE(value) ((uint8_t)((value) >> 8))
 #define DESCRIPTOR_TYPE_DEVICE 1
 #define DESCRIPTOR_TYPE_DEVICE_CONFIGURATION 2
 #define DESCRIPTOR_TYPE_DEVICE_QUALIFIER 6
-
-#define PHASE_SETUP 0
-#define PHASE_DATA_IN 1
-#define PHASE_DATA_OUT 2
-#define PHASE_STATUS_IN 3
-#define PHASE_STATUS_OUT 4
-#define PHASE_COMPLETE 5
 
 #define oddbit(endpoint, tx) ((oddbits & ((1 << (2 * (endpoint) + (tx))))) != 0)
 #define toggle_oddbit(endpoint, tx) oddbits ^= ((1 << (2 * (endpoint) + (tx))))
@@ -186,9 +180,5 @@ typedef struct {
     uint32_t desc;
     void *buffer;
 } bdtentry_t;
-
-typedef void (*usb_data_in_callback)(uint8_t *buffer, int length);
-
-void usb_set_data_in_callback(usb_data_in_callback new_callback);
 
 #endif

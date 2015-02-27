@@ -17,6 +17,7 @@
 int main()
 {
     usb_initialize();
+    usbserial_initialize();
     usbserial_await_rts();
     sdio_initialize();
     i2c_initialize();

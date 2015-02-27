@@ -15,6 +15,8 @@
 
 #define ITOSTR_BUFFER_BOUND(t, log2r) ((sizeof (t) * 8) / log2r + 3)
 
+static volatile uint8_t line_state;
+
 static void utostr(uint64_t n, int radix, int width)
 {
     int log2r, r;
@@ -212,6 +214,24 @@ int usbserial_set_state(uint16_t state)
     usb_interrupt((uint8_t *)notification, 10);
 
     return 0;
+}
+
+void line_state_changed(uint8_t new_line_state)
+{
+    line_state = new_line_state;
+}
+
+void break_sent (uint16_t duration)
+{
+    if (duration != 0xffff) {
+        request_reboot();
+    }
+}
+
+void usbserial_initialize()
+{
+    usb_set_line_state_callback(line_state_changed);
+    usb_set_send_break_callback(break_sent);
 }
 
 void usbserial_await_dtr()

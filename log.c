@@ -6,7 +6,7 @@
 #include "usbserial.h"
 #include "util.h"
 
-#define RING_SIZE 3
+#define RING_SIZE 16
 #define INDEX_BLOCKS 16
 #define ENTRY_SIZE (4 * sizeof(uint32_t))
 #define SAMPLE_SIZE sizeof(float)
@@ -34,11 +34,13 @@
 
 static struct {
     volatile uint32_t lines;    /* Total number of lines recorded. */
-    volatile uint32_t filled;   /* Total blocks filled. */
-    volatile uint32_t written;  /* Total blocks written out. */
+    volatile uint32_t filling;  /* Total block currently being filled. */
+    volatile uint32_t writing;  /* Total block currently being written
+                                 * out. */
     volatile uint16_t fill;     /* The fill, in bytes, of the current
                                  * buffer. */
     uint32_t key, data, block;  /* Entry details. */
+    uint32_t target;            /* Number of entries to write. */
     uint8_t width;              /* The witdth, in bytes, of each
                                  * line. */
     uint8_t buffers[RING_SIZE][512];
@@ -46,15 +48,29 @@ static struct {
 
 static uint32_t data = (1 << 10) - 1;
 
-static void flush_filled_buffers()
+static uint8_t *flush_filled_buffers(SDTransactionStatus status,
+                                     uint8_t *buffer,
+                                     void *userdata)
 {
-    if (context.written < context.filled) {
-        /* usbserial_trace("< %f\n", (float)cycles() / cycles_in_ms(1)); */
+    uint8_t *b;
 
-        sdio_write_single_block(context.block + context.written,
-                                context.buffers[context.written % RING_SIZE]);
-        context.written += 1;
-   }
+    assert(status != SDIO_FAILED);
+    toggle_led();
+
+    if (context.writing == context.filling) {
+        if (fusion_in_progress()) {
+            sleep_while(context.writing == context.filling);
+        } else {
+            return NULL;
+        }
+    }
+
+    /* usbserial_trace("< %f\n", (float)cycles() / cycles_in_ms(1)); */
+
+    b = context.buffers[context.writing % RING_SIZE];
+    context.writing += 1;
+
+    return b;
 }
 
 static void fusion_data_ready(float *samples)
@@ -62,7 +78,11 @@ static void fusion_data_ready(float *samples)
     uint8_t *line = (uint8_t *)samples;
     int spillover;
 
-    assert (context.filled - context.written < RING_SIZE - 1);
+    /* This takes account of the fact that context.writing points to
+     * the _next_ page to be written. */
+
+    assert (context.filling - context.writing < RING_SIZE - 1);
+
     spillover = context.width - (sizeof(context.buffers[0]) - context.fill);
     assert(spillover < 0 || ((context.lines + 1) * context.width) % 512 == spillover);
 
@@ -71,7 +91,7 @@ static void fusion_data_ready(float *samples)
     if (spillover < 0) {
         /* Write entire lines to the buffer if they fit. */
 
-        memcpy (context.buffers[context.filled % RING_SIZE] + context.fill,
+        memcpy (context.buffers[context.filling % RING_SIZE] + context.fill,
                 line, context.width);
 
         context.fill += context.width;
@@ -79,38 +99,47 @@ static void fusion_data_ready(float *samples)
         /* If the line doesn't fit entirely, write the beginning of
          * the next line. */
 
-        memcpy (context.buffers[context.filled % RING_SIZE] + context.fill,
+        memcpy (context.buffers[context.filling % RING_SIZE] + context.fill,
                 line, context.width - spillover);
 
-        /* memset(context.buffers[(context.filled + 1) % RING_SIZE], */
+        /* memset(context.buffers[(context.filling + 1) % RING_SIZE], */
         /*        0xFA, sizeof(context.buffers[0])); */
 
         /* If there's left-over data from the last line copy it to the
          * start of the new buffer. */
 
         if (spillover > 0) {
-            memcpy(context.buffers[(context.filled + 1) % RING_SIZE],
+            /* Make sure we're not spilling into the page currently
+             * being written out. */
+
+            assert (context.filling - context.writing < RING_SIZE - 2);
+
+            memcpy(context.buffers[(context.filling + 1) % RING_SIZE],
                    line + context.width - spillover, spillover);
         }
 
-        context.filled += 1;
+        context.filling += 1;
         context.fill = spillover;
 
-        /* Flush the buffer into the SD card.  */
-
-        /* usbserial_trace("> %f\n", (float)cycles() / cycles_in_ms(1)); */
-
-        if (!sdio_is_busy()) {
-            flush_filled_buffers();
-        }
-
         /* usbserial_trace("%d\n", */
-        /*                 context.block + context.filled); */
+        /*                 context.block + context.filling); */
     }
 
     /* Increment the number of entries written. */
 
     context.lines += 1;
+
+    if (context.lines == context.target) {
+        fusion_set_callback(NULL);
+
+        /* Force the last, half-finished page to be flushed, if
+         * needed. */
+
+        if(context.fill > 0) {
+            context.filling += 1;
+        }
+    }
+
     assert((context.lines * context.width) % 512 == context.fill);
 }
 
@@ -149,14 +178,13 @@ static inline int sample_data_blocks(lines, width)
     return ((lines * width + 511) / 512);
 }
 
-void log_toggle()
+void log_record(int count)
 {
-    static uint8_t logging;
     uint8_t buffer[512];
     uint16_t index;
     uint8_t offset;
 
-    if (!logging) {
+    {
         uint32_t *header;
         int m, n;
 
@@ -203,35 +231,23 @@ void log_toggle()
         context.key = n + 1;
         context.data = data;
         context.block = m;
-        context.lines = 0;
+        context.target = count;
+        context.lines = context.fill = context.filling = context.writing = 0;
 
-        context.fill = context.filled = context.written = 0;
-
-        sdio_set_callback(flush_filled_buffers);
         fusion_set_callback(fusion_data_ready);
+        sdio_write_multiple_blocks(context.block, NULL,
+                                   flush_filled_buffers, NULL);
 
-        logging = 1;
-    } else {
+        sleep_while(sdio_is_busy());
+    }
+
+    {
         uint32_t *n;
 
         /* Stop logging. */
 
-        sdio_set_callback(NULL);
-        fusion_set_callback(NULL);
-
-        /* Wait until all pending filled buffers have been written. */
-
-        sleep_while(context.written < context.filled || sdio_is_busy());
-        assert(context.written == context.filled);
-
-        /* If the last block was partially filled, flush it. */
-
-        if (context.fill > 0) {
-            sdio_write_single_block(context.block + context.written,
-                                    context.buffers[context.filled % RING_SIZE]);
-        }
-
-        /* usb_write("+++\n", 4, 1); */
+        assert(!(fusion_in_progress()));
+        assert(context.writing == context.filling);
 
         /* Fetch the master index block. */
 
@@ -273,8 +289,6 @@ void log_toggle()
 
         sdio_write_single_block(index, buffer);
         sleep_while(sdio_is_busy());
-
-        logging = 0;
     }
 }
 
