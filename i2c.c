@@ -101,7 +101,7 @@ static struct {
     uint8_t *buffer;
     uint32_t length, read;
     uint8_t phase, slave, reg;
-    i2c_data_ready_callback callback;
+    i2c_DataReadyCallback callback;
 } context;
 
 __attribute__((interrupt ("IRQ"))) void pit0_isr(void)
@@ -223,7 +223,7 @@ unsigned int i2c_bytes_read()
 }
 
 int i2c_read_noblock(uint8_t slave, uint8_t reg, uint8_t *buffer, size_t n,
-                     i2c_data_ready_callback callback)
+                     i2c_DataReadyCallback callback)
 {
     if (I2C0_S & I2C_S_BUSY) {
         return 1;

@@ -266,6 +266,13 @@
         NVIC_ICER(1) = ~(uint32_t)1;                            \
     }
 
+typedef void (*SoftwareIsrCallback)();
+void set_software_isr_callback(SoftwareIsrCallback new_callback);
+
+#define pend_software_interrupt(n) pend_interrupt(45)
+#define unpend_software_interrupt() unpend_interrupt(45)
+#define prioritize_software_interrupt(p) prioritize_interrupt(45, p)
+
 #define sleep() asm("wfi")
 #define sleep_if(cond) asm volatile("cmp %0, #0\n\t"                    \
                                     "it ne\n\t"                         \

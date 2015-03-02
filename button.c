@@ -3,7 +3,7 @@
 #include "button.h"
 
 static uint8_t down;
-static button_callback callback;
+static button_Callback callback;
 
 __attribute__((interrupt ("IRQ"))) void lptmr_isr(void)
 {
@@ -34,7 +34,7 @@ __attribute__((interrupt ("IRQ"))) void lptmr_isr(void)
     LPTMR0_CSR |= LPTMR_CSR_TCF;
 }
 
-void button_set_callback(button_callback new_callback)
+void button_set_callback(button_Callback new_callback)
 {
     callback = new_callback;
 }

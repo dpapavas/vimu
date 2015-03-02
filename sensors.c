@@ -8,12 +8,12 @@
 
 #define MAX_RETRIES 5
 
-static int16_t buffers[2][LINE_WIDTH];
+static int16_t buffers[2][SENSORS_SAMPLES_PER_LINE];
 static uint8_t online, r = 0, w = 0;
 static volatile uint8_t fetched, available;
 
 static void fetch_more_data();
-static sensors_data_ready_callback callback;
+static sensors_DataReadyCallback callback;
 
 static void data_ready(int status, int count)
 {
@@ -226,7 +226,7 @@ int sensors_are_online()
     return online;
 }
 
-void sensors_set_callback(sensors_data_ready_callback new_callback)
+void sensors_set_callback(sensors_DataReadyCallback new_callback)
 {
     callback = new_callback;
 

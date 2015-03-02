@@ -80,33 +80,12 @@
 #define IRB 11
 #define IRC 12
 
-#define LINE_WIDTH 10
+#define SENSORS_SAMPLES_PER_LINE 10
 
-typedef void (*sensors_data_ready_callback)(int16_t *line);
-
-typedef enum {
-    RAW_ACCELERATION = 0x1,
-    RAW_ANGULAR_RATE = 0x2,
-    RAW_MAGNETIC_FIELD = 0x4,
-
-    CALIBRATED_ACCELERATION = 0x8,
-    CALIBRATED_ANGULAR_VELOCITY = 0x10,
-    CALIBRATED_MAGNETIC_FIELD = 0x20,
-
-    SENSOR_TEMPERATURE,
-
-    COURSE_OVER_GROUND,
-    SPEED_OVER_GROUND,
-    GPS_MODE,
-    LONGITUDE,
-    LATITUDE,
-    UTC_TIME,
-    DOP,
-    ALTITUDE,
-} SensorDatum;
+typedef void (*sensors_DataReadyCallback)(int16_t *line);
 
 int sensors_are_online();
 void read_sensor_values(int16_t *line);
-void sensors_set_callback(sensors_data_ready_callback new_callback);
+void sensors_set_callback(sensors_DataReadyCallback new_callback);
 
 #endif

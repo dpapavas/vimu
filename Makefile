@@ -2,7 +2,7 @@ TARGET = main
 OPTIONS = -DF_CPU=48000000 -DF_BUS=48000000
 
 OPT = -Os
-CPPFLAGS = -Wall -MMD $(OPTIONS) -I.
+CPPFLAGS = -Wall -Winline -MMD $(OPTIONS) -I.
 CFLAGS = -mcpu=cortex-m4 -mthumb -g $(OPT) -nostdlib
 ASFLAGS = 
 LDFLAGS = $(OPT) -Wl,--gc-sections -Wl,--print-map -mcpu=cortex-m4 -mthumb -Tmk20dx128.ld

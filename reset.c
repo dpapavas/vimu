@@ -11,6 +11,8 @@ extern void __libc_init_array (void);
 extern void __startup(void);
 extern int main (void);
 
+SoftwareIsrCallback callback;
+
 static __attribute__((naked, used)) void diagnose_fault (unsigned long *sp)
 {
     int i;
@@ -76,6 +78,25 @@ static __attribute__((noreturn, interrupt ("IRQ"))) void unused_isr(void)
     while (1);
 }
 
+__attribute__((interrupt ("IRQ"))) void software_isr(void)
+{
+    assert(callback);
+    callback();
+}
+
+void set_software_isr_callback(SoftwareIsrCallback new_callback)
+{
+    assert(!callback || !new_callback);
+
+    callback = new_callback;
+
+    if (new_callback) {
+        enable_interrupt(45);
+    } else {
+        disable_interrupt(45);
+    }
+}
+
 void nmi_isr(void)              __attribute__ ((weak, alias("unused_isr")));
 void hard_fault_isr(void)       __attribute__ ((weak, alias("fault_isr")));
 void memmanage_fault_isr(void)  __attribute__ ((weak, alias("unused_isr")));
@@ -130,7 +151,6 @@ void portb_isr(void)            __attribute__ ((weak, alias("unused_isr")));
 void portc_isr(void)            __attribute__ ((weak, alias("unused_isr")));
 void portd_isr(void)            __attribute__ ((weak, alias("unused_isr")));
 void porte_isr(void)            __attribute__ ((weak, alias("unused_isr")));
-void software_isr(void)         __attribute__ ((weak, alias("unused_isr")));
 
 __attribute__ ((section(".vectors"), used))
 void (* const vectors[])(void) =

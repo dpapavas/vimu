@@ -34,9 +34,20 @@ typedef enum {
     BLOCKS,
     RECORD,
     LIST,
-    LOG,
     REPLAY,
     TEST,
+    SET,
+
+    /* Registers. */
+
+    RATE,
+
+    /* Fusion data.  Order must match FusionDatum! */
+
+    RAWACCELERATION,
+    RAWANGULARSPEED,
+    RAWMAGNETICFIELD,
+    TEMPERATURE,
 
     IDENTIFIERS_N,
 } Identifier;
@@ -49,14 +60,31 @@ static char *identifiers[IDENTIFIERS_N] = {
     [BLOCKS] = "blocks",
     [RECORD] = "record",
     [LIST] = "list",
-    [LOG] = "log",
     [REPLAY] = "replay",
+    [SET] = "set",
     [TEST] = "test",
+
+    [RATE] = "rate",
+
+    [RAWACCELERATION] = "rawacceleration",
+    [RAWANGULARSPEED] = "rawangularspeed",
+    [RAWMAGNETICFIELD] = "rawmagneticfield",
+    [TEMPERATURE] = "temperature",
 };
 
 static volatile uint32_t tokens[4];
 static volatile uint8_t tokens_n;
 static volatile ConsoleState state = PRIMING;
+static struct {
+    uint32_t data;
+    uint16_t rate;
+} registers = {
+    .data = ((1 << FUSION_RAW_ACCELERATION) |
+             (1 << FUSION_RAW_ANGULAR_SPEED) |
+             (1 << FUSION_RAW_MAGNETIC_FIELD) |
+             (1 << FUSION_SENSOR_TEMPERATURE)),
+    .rate = 1000,
+};
 
 static uint8_t *dump_block(SDTransactionStatus status,
                            uint8_t *buffer,
@@ -240,15 +268,41 @@ void console_enter()
 
             break;
 
-        case RECORD: log_record(tokens[1]); break;
+        case RECORD:
+            log_record(registers.data, registers.rate, tokens[1]);
+            break;
         case LIST: log_list(); break;
-        case LOG: /* usbserial_printf("log %d\n", tokens[1]); */ break;
-
         case REPLAY:
             log_replay(tokens[1], tokens[2]);
             break;
 
         case TEST:
+            break;
+
+        case SET:
+            switch (tokens[1]) {
+            case RAWACCELERATION:
+            case RAWANGULARSPEED:
+            case RAWMAGNETICFIELD:
+            case TEMPERATURE: {
+                int i = tokens[1] - RAWACCELERATION + FUSION_RAW_ACCELERATION;
+
+                if (tokens[2]) {
+                    registers.data |= (1 << i);
+                } else {
+                    registers.data &= ~(1 << i);
+                }
+            }
+                break;
+
+            case RATE:
+                registers.rate = tokens[2];
+                break;
+
+            default:
+                usbserial_printf("Can't set that.\n");
+            }
+
             break;
 
         default: assert(0);

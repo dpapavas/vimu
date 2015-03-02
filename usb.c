@@ -47,10 +47,10 @@ static enum {
     PHASE_COMPLETE,
 } phase;
 
-static usb_data_in_callback data_in_callback;
-static usb_line_state_callback line_state_callback;
-static usb_line_coding_callback line_coding_callback;
-static usb_send_break_callback send_break_callback;
+static usb_DataInCallback data_in_callback;
+static usb_LineStateCallback line_state_callback;
+static usb_LineCodingCallback line_coding_callback;
+static usb_SendBreakCallback send_break_callback;
 
 static inline int process_setup_packet(uint16_t request, uint16_t value,
                                        uint16_t index, uint16_t length)
@@ -691,21 +691,21 @@ int usb_write(const char *s, int n, int flush)
     }
 }
 
-void usb_set_data_in_callback(usb_data_in_callback new_callback)
+void usb_set_data_in_callback(usb_DataInCallback new_callback)
 {
     data_in_callback = new_callback;
 }
 
-void usb_set_line_state_callback(usb_line_state_callback new_callback)
+void usb_set_line_state_callback(usb_LineStateCallback new_callback)
 {
     line_state_callback = new_callback;
 }
-void usb_set_line_coding_callback(usb_line_coding_callback new_callback)
+void usb_set_line_coding_callback(usb_LineCodingCallback new_callback)
 {
     line_coding_callback = new_callback;
 }
 
-void usb_set_send_break_callback(usb_send_break_callback new_callback)
+void usb_set_send_break_callback(usb_SendBreakCallback new_callback)
 {
     send_break_callback = new_callback;
 }

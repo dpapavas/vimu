@@ -33,7 +33,7 @@
 static int8_t ccs;
 
 static struct {
-    sdio_transaction_callback callback;
+    sdio_TransactionCallback callback;
     void *userdata;
     uint32_t argument;
     uint8_t command, response, *buffer;
@@ -74,7 +74,7 @@ static void finalize_command()
 
 static void initialize_command(uint8_t cmd, uint32_t arg,
                                uint8_t *buffer,
-                               sdio_transaction_callback callback,
+                               sdio_TransactionCallback callback,
                                void *userdata)
 {
     /* Set up the command. */
@@ -662,7 +662,7 @@ void sdio_read_single_block(int32_t addr, uint8_t *buffer)
 }
 
 void sdio_read_multiple_blocks(int32_t addr, uint8_t *buffer,
-                               sdio_transaction_callback callback,
+                               sdio_TransactionCallback callback,
                                void *userdata)
 {
 #ifdef DEBUG
@@ -684,7 +684,7 @@ void sdio_write_single_block(int32_t addr, uint8_t *buffer)
 }
 
 void sdio_write_multiple_blocks(int32_t addr, uint8_t *buffer,
-                                sdio_transaction_callback callback,
+                                sdio_TransactionCallback callback,
                                 void *userdata)
 {
 #ifdef DEBUG
