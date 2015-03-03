@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <math.h>
 
 #include "mk20dx128.h"
 #include "util.h"
@@ -79,9 +80,7 @@ static struct {
     uint32_t data;
     uint16_t rate;
 } registers = {
-    .data = ((1 << FUSION_RAW_ACCELERATION) |
-             (1 << FUSION_RAW_ANGULAR_SPEED) |
-             (1 << FUSION_RAW_MAGNETIC_FIELD) |
+    .data = ((1 << FUSION_RAW_ANGULAR_SPEED) |
              (1 << FUSION_SENSOR_TEMPERATURE)),
     .rate = 1000,
 };
@@ -242,6 +241,39 @@ void console_initialize()
     usbserial_set_state(SERIAL_STATE_DSR);
 }
 
+#define FILTER_LENGTH 5
+#define RATE_THRESHOLD 0.1
+typedef struct {
+    float window[FILTER_LENGTH], kernel[FILTER_LENGTH];
+    uint32_t fill, checkpoint;
+} FusionContext;
+
+static int fusion_data_ready(float *samples, void *userdata)
+{
+    FusionContext *context = (FusionContext *)userdata;
+    float f;
+    int i;
+
+    context->window[context->fill % FILTER_LENGTH] =
+        sqrtf(samples[0] * samples[0] +
+              samples[1] * samples[1] +
+              samples[2] * samples[2]);
+
+    if ((context->fill += 1) >= FILTER_LENGTH) {
+        for (i = 0, f = 0;
+             i < FILTER_LENGTH;
+             f += (context->kernel[FILTER_LENGTH - i - 1] *
+                   context->window[(context->fill - i) % FILTER_LENGTH]),
+                 i += 1);
+
+        if (fabsf(f) > RATE_THRESHOLD) {
+            context->checkpoint = context->fill;
+        }
+    }
+
+    return context->fill - context->checkpoint < 5000;
+}
+
 void console_enter()
 {
     while (1) {
@@ -254,16 +286,19 @@ void console_enter()
 
         case CARD: usbserial_printf("%x\n", sdio_get_status()); break;
         case BLOCKS: {
-            /* switch(tokens_n) { */
-            /* case 1: break; */
-            /* case 2: dump_blocks(tokens[1], tokens[1]); break; */
-            /* case 3: dump_blocks(tokens[1], tokens[2]); break; */
-            /* } */
             uint8_t buffer[512];
             uint32_t n = 3;
 
-            sdio_read_multiple_blocks(0, buffer, dump_block, &n);
-            sleep_while(sdio_is_busy());
+            switch(tokens_n) {
+            case 1: n = 0; break;
+            case 2: n = 1; break;
+            case 3: n = tokens[2] - tokens[1] + 1; break;
+            }
+
+            if (n > 0) {
+                sdio_read_multiple_blocks(tokens[1], buffer, dump_block, &n);
+                sleep_while(sdio_is_busy());
+            }
         }
 
             break;
@@ -276,7 +311,21 @@ void console_enter()
             log_replay(tokens[1], tokens[2]);
             break;
 
-        case TEST:
+        case TEST: {
+            FusionContext context = {
+                .kernel = {-3.4524e-01,
+                           1.0476e+00,
+                           -5.7143e-01,
+                           -1.6190e+00,
+                           1.4881e+00},
+                .fill = 0
+            };
+
+            fusion_start(FUSION_RAW_ANGULAR_SPEED,
+                         0, fusion_data_ready, &context);
+            usbserial_trace("Done\n");
+        }
+
             break;
 
         case SET:
@@ -306,6 +355,7 @@ void console_enter()
             break;
 
         default: assert(0);
+
         }
 
         state = FIRED;

@@ -71,7 +71,7 @@ static uint8_t *flush_filled_buffers(SDTransactionStatus status,
     return b;
 }
 
-static int fusion_data_ready(float *samples)
+static int fusion_data_ready(float *samples, void *userdata)
 {
     uint8_t *line = (uint8_t *)samples;
     int spillover;
@@ -266,7 +266,7 @@ void log_record(uint32_t data, int rate, int count)
         context.lines = context.fill = context.filling = context.writing = 0;
 
         turn_on_led();
-        fusion_start(data, rate, fusion_data_ready);
+        fusion_start(data, rate, fusion_data_ready, NULL);
         sleep_while(sdio_is_busy());
         turn_off_led();
     }
@@ -423,6 +423,8 @@ void log_replay(uint32_t key, int lines)
 
         blocks = SAMPLE_DATA_BLOCKS (entry[3], width);
 
+        turn_on_led();
+
         for (j = 0 ; j < blocks ; j += 1) {
             int k;
 
@@ -473,5 +475,7 @@ void log_replay(uint32_t key, int lines)
                 memcpy (scratch, buffer + i, spillover);
             }
         }
+
+        turn_off_led();
     }
 }

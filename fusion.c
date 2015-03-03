@@ -9,6 +9,7 @@
 
 static struct {
     fusion_DataReadyCallback callback;
+    void *userdata;
     int16_t lines[RING_SIZE][SENSORS_SAMPLES_PER_LINE];
     float *line;
     uint32_t data;
@@ -109,7 +110,7 @@ static void fuse_sensor_data()
                 }
             }
 
-            if (!context.callback(context.line)) {
+            if (!context.callback(context.line, context.userdata)) {
                 context.period = 0;
             } else {
                 memset(context.line, 0, context.width * sizeof(float));
@@ -140,7 +141,8 @@ int fusion_samples_per_line(uint32_t data)
     return n;
 }
 
-void fusion_start(uint32_t data, int rate, fusion_DataReadyCallback callback)
+void fusion_start(uint32_t data, int rate,
+                  fusion_DataReadyCallback callback, void *userdata)
 {
     int w = fusion_samples_per_line(data);
     float line[w];
@@ -149,11 +151,12 @@ void fusion_start(uint32_t data, int rate, fusion_DataReadyCallback callback)
 
     context.read = context.write = context.count = 0;
     context.callback = callback;
+    context.userdata = userdata;
     context.data = data;
     context.width = w;
     context.line = memset(line, 0, sizeof(line));
 
-    if (rate >= 0 && rate <= 1000) {
+    if (rate > 0 && rate <= 1000) {
         context.period = 1000 / rate;
     } else {
         context.period = 1;

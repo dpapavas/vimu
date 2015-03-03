@@ -22,9 +22,10 @@ typedef enum {
     FUSION_ALTITUDE,
 } fusion_Datum;
 
-typedef int (*fusion_DataReadyCallback)(float *samples);
+typedef int (*fusion_DataReadyCallback)(float *samples, void *userdata);
 
-void fusion_start(uint32_t data, int rate, fusion_DataReadyCallback callback);
+void fusion_start(uint32_t data, int rate,
+                  fusion_DataReadyCallback callback, void *userdata);
 int fusion_samples_per_line(uint32_t data);
 int fusion_in_progress();
 
