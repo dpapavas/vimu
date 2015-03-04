@@ -140,6 +140,12 @@ static int fusion_data_ready(float *samples, void *userdata)
 
         if(context.fill > 0) {
             context.filling += 1;
+
+            if (context.filling == 1) {
+                assert(!sdio_is_busy());
+                sdio_write_multiple_blocks(context.block, NULL,
+                                           flush_filled_buffers, NULL);
+            }
         }
 
         return 0;
@@ -214,112 +220,103 @@ void log_record(uint32_t data, int rate, int count)
     uint8_t buffer[512];
     uint16_t index;
     uint8_t offset;
+    uint32_t *b;
+    int m, n;
 
-    {
-        uint32_t *header;
-        int m, n;
+    /* We're not currently logging so start now. */
 
-        /* We're not currently logging so start now. */
+    sdio_read_single_block(0, buffer);
+    sleep_while(sdio_is_busy());
 
-        sdio_read_single_block(0, buffer);
+    b = (uint32_t *)buffer;
+    n = b[0];
+
+    index = n / ENTRIES_PER_INDEX_BLOCK + 1;
+    offset = n % ENTRIES_PER_INDEX_BLOCK;
+    context.width = fusion_samples_per_line(data) * SAMPLE_SIZE;
+
+    if (index == 1 && offset == 0) {
+        /* This is the first entry so we only need to skip the index
+         * blocks. */
+
+        m = 1 + INDEX_BLOCKS;
+    } else if (offset == 0) {
+        uint32_t *entry;
+
+        /* The last entry is stored in the previous block so we need
+         * to fetch it. */
+
+        sdio_read_single_block(index - 1, buffer);
         sleep_while(sdio_is_busy());
 
-        header = (uint32_t *)buffer;
-
-        n = header[0];
-        index = n / ENTRIES_PER_INDEX_BLOCK + 1;
-        offset = n % ENTRIES_PER_INDEX_BLOCK;
-        context.width = fusion_samples_per_line(data) * SAMPLE_SIZE;
-
-        if (index == 1 && offset == 0) {
-            /* This is the first entry so we only need to skip the index
-             * blocks. */
-
-            m = 1 + INDEX_BLOCKS;
-        } else if (offset == 0) {
-            uint32_t *entry;
-
-            /* The last entry is stored in the previous block so we need
-             * to fetch it. */
-
-            sdio_read_single_block(index - 1, buffer);
-            sleep_while(sdio_is_busy());
-
-            entry = (uint32_t *)(buffer + (ENTRIES_PER_INDEX_BLOCK - 1) *
-                                ENTRY_SIZE);
-            m = entry[2] + SAMPLE_DATA_BLOCKS(entry[3], context.width);
-        } else {
-            uint32_t *entry;
-
-            sdio_read_single_block(index, buffer);
-            sleep_while(sdio_is_busy());
-
-            entry = (uint32_t *)(buffer + (offset - 1) *
-                                ENTRY_SIZE);
-            m = entry[2] + SAMPLE_DATA_BLOCKS(entry[3], context.width);
-        }
-
-        context.key = n + 1;
-        context.data = data;
-        context.block = m;
-        context.target = count;
-        context.lines = context.fill = context.filling = context.writing = 0;
-
-        turn_on_led();
-        fusion_start(data, rate, fusion_data_ready, NULL);
-        sleep_while(sdio_is_busy());
-        turn_off_led();
-    }
-
-    {
-        uint32_t *n;
-
-        /* Stop logging. */
-
-        assert(!(fusion_in_progress()));
-        assert(context.writing == context.filling);
-
-        /* Fetch the master index block. */
-
-        sdio_read_single_block(0, buffer);
-        sleep_while(sdio_is_busy());
-
-        /* Increment the number of entries. */
-
-        n = (uint32_t *)(buffer + 0);
-        index = *n / ENTRIES_PER_INDEX_BLOCK + 1;
-        offset = *n % ENTRIES_PER_INDEX_BLOCK;
-        *n += 1;
-
-        /* Update the master index, if we're starting a new block. */
-
-        if (offset == 0) {
-            n = (uint32_t *)buffer + offset + 1;
-            *n = context.key;
-        }
-
-        /* Write it back. */
-
-        sdio_write_single_block(0, buffer);
-        sleep_while(sdio_is_busy());
-
-        /* Fetch the last index block, add the entry and write it back. */
+        entry = (uint32_t *)(buffer + (ENTRIES_PER_INDEX_BLOCK - 1) *
+                             ENTRY_SIZE);
+        m = entry[2] + SAMPLE_DATA_BLOCKS(entry[3], context.width);
+    } else {
+        uint32_t *entry;
 
         sdio_read_single_block(index, buffer);
         sleep_while(sdio_is_busy());
 
-        {
-            uint32_t *entry = (uint32_t *)(buffer + offset * ENTRY_SIZE);
-
-            entry[0] = context.key;
-            entry[1] = context.data;
-            entry[2] = context.block;
-            entry[3] = context.lines;
-        }
-
-        sdio_write_single_block(index, buffer);
-        sleep_while(sdio_is_busy());
+        entry = (uint32_t *)(buffer + (offset - 1) *
+                             ENTRY_SIZE);
+        m = entry[2] + SAMPLE_DATA_BLOCKS(entry[3], context.width);
     }
+
+    context.key = n + 1;
+    context.data = data;
+    context.block = m;
+    context.target = count;
+    context.lines = context.fill = context.filling = context.writing = 0;
+
+    turn_on_led();
+    fusion_start(data, rate, fusion_data_ready, NULL);
+    sleep_while(sdio_is_busy());
+    turn_off_led();
+
+    /* Stop logging. */
+
+    assert(!(fusion_in_progress()));
+    assert(context.writing == context.filling);
+
+    /* Fetch the master index block. */
+
+    sdio_read_single_block(0, buffer);
+    sleep_while(sdio_is_busy());
+
+    b = (uint32_t *)buffer;
+
+    /* Increment the number of entries. */
+
+    b[0] += 1;
+
+    /* Update the master index, if we're starting a new block. */
+
+    if (offset == 0) {
+        b[index + 1] = context.key;
+    }
+
+    /* Write it back. */
+
+    sdio_write_single_block(0, buffer);
+    sleep_while(sdio_is_busy());
+
+    /* Fetch the last index block, add the entry and write it back. */
+
+    sdio_read_single_block(index, buffer);
+    sleep_while(sdio_is_busy());
+
+    {
+        uint32_t *entry = (uint32_t *)(buffer + offset * ENTRY_SIZE);
+
+        entry[0] = context.key;
+        entry[1] = context.data;
+        entry[2] = context.block;
+        entry[3] = context.lines;
+    }
+
+    sdio_write_single_block(index, buffer);
+    sleep_while(sdio_is_busy());
 }
 
 void log_list()
@@ -361,7 +358,7 @@ void log_list()
 void log_replay(uint32_t key, int lines)
 {
     uint8_t buffer[512];
-    uint32_t entry[4], *n_p, n;
+    uint32_t entry[4], *b, n;
     int i, m, width;
 
     /* Fetch the master index block and read the number of logs. */
@@ -371,10 +368,10 @@ void log_replay(uint32_t key, int lines)
 
     /* This is necessary so as not to break aliasing rules. */
 
-    n_p = (uint32_t *)(buffer + 0);
-    n = *n_p;
+    b = (uint32_t *)(buffer + 0);
+    n = b[0];
 
-    for (i = 0 ; i <= n / ENTRIES_PER_INDEX_BLOCK ; i += 1) {
+    for (i = 0 ; i <= (n - 1) / ENTRIES_PER_INDEX_BLOCK ; i += 1) {
         if (key < ((uint32_t *)buffer)[i + 1]) {
             break;
         }
