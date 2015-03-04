@@ -229,8 +229,7 @@ static void usb_data_in (uint8_t *data, int length)
 
             break;
 
-        default:
-            assert(0);
+        default: assert(0);
         }
     }
 }
@@ -242,7 +241,8 @@ void console_initialize()
 }
 
 #define FILTER_LENGTH 5
-#define RATE_THRESHOLD 0.1
+#define RATE_THRESHOLD 1.0
+
 typedef struct {
     float window[FILTER_LENGTH], kernel[FILTER_LENGTH];
     uint32_t fill, checkpoint;
@@ -259,10 +259,10 @@ static int fusion_data_ready(float *samples, void *userdata)
               samples[1] * samples[1] +
               samples[2] * samples[2]);
 
-    if ((context->fill += 1) >= FILTER_LENGTH) {
+    if (context->fill >= FILTER_LENGTH - 1) {
         for (i = 0, f = 0;
              i < FILTER_LENGTH;
-             f += (context->kernel[FILTER_LENGTH - i - 1] *
+             f += (context->kernel[i] *
                    context->window[(context->fill - i) % FILTER_LENGTH]),
                  i += 1);
 
@@ -271,7 +271,7 @@ static int fusion_data_ready(float *samples, void *userdata)
         }
     }
 
-    return context->fill - context->checkpoint < 5000;
+    return (context->fill += 1) - context->checkpoint < 50;
 }
 
 void console_enter()
@@ -313,16 +313,19 @@ void console_enter()
 
         case TEST: {
             FusionContext context = {
-                .kernel = {-3.4524e-01,
-                           1.0476e+00,
-                           -5.7143e-01,
-                           -1.6190e+00,
-                           1.4881e+00},
-                .fill = 0
+                .kernel = {
+                    -3.45238095238094,
+                    10.47619047619045,
+                    -5.71428571428567,
+                    -16.19047619047622,
+                    14.88095238095237,
+                },
+                .fill = 0,
+                .checkpoint = 0,
             };
 
-            fusion_start(FUSION_RAW_ANGULAR_SPEED,
-                         0, fusion_data_ready, &context);
+            fusion_start((1 << FUSION_RAW_ANGULAR_SPEED),
+                         10, fusion_data_ready, &context);
             usbserial_trace("Done\n");
         }
 
@@ -354,8 +357,7 @@ void console_enter()
 
             break;
 
-        default: assert(0);
-
+        default: usbserial_printf("No such command.\n");
         }
 
         state = FIRED;
