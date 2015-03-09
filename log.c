@@ -7,6 +7,7 @@
 #include "util.h"
 
 #define RING_SIZE 16
+#define CONFIGURATION_BLOCKS 1
 #define INDEX_BLOCKS 16
 #define ENTRY_SIZE (4 * sizeof(uint32_t))
 #define SAMPLE_SIZE sizeof(float)
@@ -16,13 +17,13 @@
 /*****************************************************
  * Block 0: Master index block.                      *
  *                                                   *
- * +-----------------------------------------+-...-+ *
+ * +----------+------------------------------+-...-+ *
  * | Count/32 | First key of ith index block |     | *
  * +----------+------------------------------+-...-+ *
  *                                                   *
  * Blocks 1 - INDEX_BLOCKS:  Index blocks            *
  *                                                   *
- * +-----------------------------------------+       *
+ * +--------+----------+----------+----------+       *
  * | KEY/32 | DATA/32  | BLOCK/32 | LINES/32 |       *
  * +--------+----------+----------+----------+       *
  * .        .          .          .          .       *
@@ -210,7 +211,7 @@ void log_initialize()
     memset(buffer, 0, sizeof(buffer));
 
     for (i = 0 ; i < INDEX_BLOCKS + 1 ; i += 1) {
-        sdio_write_single_block(i, buffer);
+        sdio_write_single_block(CONFIGURATION_BLOCKS + i, buffer);
         sleep_while(sdio_is_busy());
     }
 }
@@ -225,21 +226,21 @@ void log_record(uint32_t data, int rate, int count)
 
     /* We're not currently logging so start now. */
 
-    sdio_read_single_block(0, buffer);
+    sdio_read_single_block(0 + CONFIGURATION_BLOCKS, buffer);
     sleep_while(sdio_is_busy());
 
     b = (uint32_t *)buffer;
     n = b[0];
 
-    index = n / ENTRIES_PER_INDEX_BLOCK + 1;
+    index = n / ENTRIES_PER_INDEX_BLOCK + CONFIGURATION_BLOCKS + 1;
     offset = n % ENTRIES_PER_INDEX_BLOCK;
     context.width = fusion_samples_per_line(data) * SAMPLE_SIZE;
 
-    if (index == 1 && offset == 0) {
+    if (index == CONFIGURATION_BLOCKS + 1 && offset == 0) {
         /* This is the first entry so we only need to skip the index
          * blocks. */
 
-        m = 1 + INDEX_BLOCKS;
+        m = CONFIGURATION_BLOCKS + 1 + INDEX_BLOCKS;
     } else if (offset == 0) {
         uint32_t *entry;
 
@@ -281,7 +282,7 @@ void log_record(uint32_t data, int rate, int count)
 
     /* Fetch the master index block. */
 
-    sdio_read_single_block(0, buffer);
+    sdio_read_single_block(0 + CONFIGURATION_BLOCKS, buffer);
     sleep_while(sdio_is_busy());
 
     b = (uint32_t *)buffer;
@@ -298,7 +299,7 @@ void log_record(uint32_t data, int rate, int count)
 
     /* Write it back. */
 
-    sdio_write_single_block(0, buffer);
+    sdio_write_single_block(0 + CONFIGURATION_BLOCKS, buffer);
     sleep_while(sdio_is_busy());
 
     /* Fetch the last index block, add the entry and write it back. */
@@ -317,6 +318,8 @@ void log_record(uint32_t data, int rate, int count)
 
     sdio_write_single_block(index, buffer);
     sleep_while(sdio_is_busy());
+
+    usbserial_printf("Recorded log %d.\n", context.key);
 }
 
 void log_list()
@@ -327,7 +330,7 @@ void log_list()
 
     /* Fetch the master index block and read the number of logs. */
 
-    sdio_read_single_block(0, buffer);
+    sdio_read_single_block(0 + CONFIGURATION_BLOCKS, buffer);
     sleep_while(sdio_is_busy());
 
     /* This is necessary so as not to break aliasing rules. */
@@ -342,7 +345,9 @@ void log_list()
             uint32_t *entry;
 
             if (i % ENTRIES_PER_INDEX_BLOCK == 0) {
-                sdio_read_single_block(i / ENTRIES_PER_INDEX_BLOCK + 1, buffer);
+                sdio_read_single_block((i / ENTRIES_PER_INDEX_BLOCK +
+                                        CONFIGURATION_BLOCKS + 1),
+                                       buffer);
                 sleep_while(sdio_is_busy());
             }
 
@@ -363,7 +368,7 @@ void log_replay(uint32_t key, int lines)
 
     /* Fetch the master index block and read the number of logs. */
 
-    sdio_read_single_block(0, buffer);
+    sdio_read_single_block(0 + CONFIGURATION_BLOCKS, buffer);
     sleep_while(sdio_is_busy());
 
     /* This is necessary so as not to break aliasing rules. */
@@ -384,7 +389,7 @@ void log_replay(uint32_t key, int lines)
 
     /* Fetch the appropriate index block. */
 
-    sdio_read_single_block(i, buffer);
+    sdio_read_single_block(CONFIGURATION_BLOCKS + i, buffer);
     sleep_while(sdio_is_busy());
 
     if (i - 1 == n / ENTRIES_PER_INDEX_BLOCK) {

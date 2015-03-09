@@ -131,7 +131,7 @@ static void power_up()
 
     /* Wait for the sensor board to power-on. */
 
-    delay_ms(250);
+    delay_ms(50);
 
     configure_register(MPU6050, WHO_AM_I, 0x68);
 
@@ -196,6 +196,10 @@ static void power_up()
                         INT_PIN_CFG_INT_RD_CLEAR);
 
     configure_register (MPU6050, INT_ENABLE, INT_ENABLE_DATA_RDY_EN);
+
+    /* Wait for the sensors to stabilize. */
+
+    delay_ms(50);
 
     /* Start writing to the FIFO. */
 

@@ -30,6 +30,7 @@ static volatile uint8_t configuration;
 
 static uint8_t line_state, line_coding[7];
 static uint16_t break_duration;
+static uint64_t break_start;
 
 static enum {
     NO_CALLBACK,
@@ -51,6 +52,7 @@ static usb_DataInCallback data_in_callback;
 static usb_LineStateCallback line_state_callback;
 static usb_LineCodingCallback line_coding_callback;
 static usb_SendBreakCallback send_break_callback;
+static void *send_break_userdata;
 
 static inline int process_setup_packet(uint16_t request, uint16_t value,
                                        uint16_t index, uint16_t length)
@@ -201,8 +203,18 @@ static inline int process_setup_packet(uint16_t request, uint16_t value,
     case SETUP_SEND_BREAK:
         /* SEND_BREAK request. */
 
-        break_duration = value;
-        callback = SEND_BREAK_CALLBACK;
+        if (value != 0xffff) {
+            if (value == 0 && break_start > 0) {
+                value = (cycles() - break_start) / cycles_in_ms(1);
+            }
+
+            break_start = 0;
+            break_duration = value;
+
+            callback = SEND_BREAK_CALLBACK;
+        } else {
+            break_start = cycles();
+        }
 
         return PHASE_DATA_OUT;
     }
@@ -439,9 +451,14 @@ static void handle_control_transfer (uint8_t status)
             break;
         case SEND_BREAK_CALLBACK:
             if(send_break_callback) {
-                send_break_callback(break_duration);
+                send_break_callback(break_duration, send_break_userdata);
+            } else {
+                /* usbserial_trace("Serial line break (%d ms).\n", break_duration); */
+                request_reboot();
             }
         }
+
+        callback = NO_CALLBACK;
     }
 }
 
@@ -705,7 +722,9 @@ void usb_set_line_coding_callback(usb_LineCodingCallback new_callback)
     line_coding_callback = new_callback;
 }
 
-void usb_set_send_break_callback(usb_SendBreakCallback new_callback)
+void usb_set_send_break_callback(usb_SendBreakCallback new_callback,
+                                 void *new_userdata)
 {
     send_break_callback = new_callback;
+    send_break_userdata = new_userdata;
 }

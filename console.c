@@ -12,6 +12,7 @@
 #include "sdio.h"
 #include "fusion.h"
 #include "log.h"
+#include "calibrate.h"
 
 typedef enum {
     NONE = 0,
@@ -240,40 +241,6 @@ void console_initialize()
     usbserial_set_state(SERIAL_STATE_DSR);
 }
 
-#define FILTER_LENGTH 5
-#define RATE_THRESHOLD 1.0
-
-typedef struct {
-    float window[FILTER_LENGTH], kernel[FILTER_LENGTH];
-    uint32_t fill, checkpoint;
-} FusionContext;
-
-static int fusion_data_ready(float *samples, void *userdata)
-{
-    FusionContext *context = (FusionContext *)userdata;
-    float f;
-    int i;
-
-    context->window[context->fill % FILTER_LENGTH] =
-        sqrtf(samples[0] * samples[0] +
-              samples[1] * samples[1] +
-              samples[2] * samples[2]);
-
-    if (context->fill >= FILTER_LENGTH - 1) {
-        for (i = 0, f = 0;
-             i < FILTER_LENGTH;
-             f += (context->kernel[i] *
-                   context->window[(context->fill - i) % FILTER_LENGTH]),
-                 i += 1);
-
-        if (fabsf(f) > RATE_THRESHOLD) {
-            context->checkpoint = context->fill;
-        }
-    }
-
-    return (context->fill += 1) - context->checkpoint < 50;
-}
-
 void console_enter()
 {
     while (1) {
@@ -311,25 +278,7 @@ void console_enter()
             log_replay(tokens[1], tokens[2]);
             break;
 
-        case TEST: {
-            FusionContext context = {
-                .kernel = {
-                    -3.45238095238094,
-                    10.47619047619045,
-                    -5.71428571428567,
-                    -16.19047619047622,
-                    14.88095238095237,
-                },
-                .fill = 0,
-                .checkpoint = 0,
-            };
-
-            fusion_start((1 << FUSION_RAW_ANGULAR_SPEED),
-                         10, fusion_data_ready, &context);
-            usbserial_trace("Done\n");
-        }
-
-            break;
+        case TEST: calibrate_gyroscope_offsets();  break;
 
         case SET:
             switch (tokens[1]) {

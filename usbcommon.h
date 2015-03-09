@@ -13,7 +13,7 @@
 typedef void (*usb_DataInCallback)(uint8_t *data, int length);
 typedef void (*usb_LineStateCallback)(uint8_t new_line_state);
 typedef void (*usb_LineCodingCallback)(uint8_t *new_line_coding);
-typedef void (*usb_SendBreakCallback)(uint16_t duration);
+typedef void (*usb_SendBreakCallback)(uint16_t duration, void *userdata);
 
 void usb_initialize();
 int usb_enumerated();
@@ -23,6 +23,7 @@ int usb_interrupt(uint8_t *buffer, int n);
 void usb_set_data_in_callback (usb_DataInCallback new_callback);
 void usb_set_line_state_callback(usb_LineStateCallback new_callback);
 void usb_set_line_coding_callback(usb_LineCodingCallback new_callback);
-void usb_set_send_break_callback(usb_SendBreakCallback new_callback);
+void usb_set_send_break_callback(usb_SendBreakCallback new_callback,
+                                 void *new_userdata);
 
 #endif
