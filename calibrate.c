@@ -3,6 +3,8 @@
 #include "usbcommon.h"
 #include "fusion.h"
 
+#define GYROSCOPE_CALIBRATION_OFFSET 0
+
 typedef struct {
     volatile int finished;
 

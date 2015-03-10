@@ -7,21 +7,30 @@
 #include "util.h"
 
 #define RING_SIZE 16
-#define CONFIGURATION_BLOCKS 1
 #define INDEX_BLOCKS 16
+#define MASTER_INDEX_BLOCKS (((4 * INDEX_BLOCKS + 1) + 511) / 512)
+
+#if MASTER_INDEX_BLOCKS > 1
+#error More than 127 index blocks not supported.
+#endif
+
+#define FIRST_MASTER_INDEX_BLOCK 1
+#define FIRST_INDEX_BLOCK (FIRST_MASTER_INDEX_BLOCK + MASTER_INDEX_BLOCKS)
+#define FIRST_SAMPLE_DATA_BLOCK (FIRST_INDEX_BLOCK + INDEX_BLOCKS)
+
 #define ENTRY_SIZE (4 * sizeof(uint32_t))
 #define SAMPLE_SIZE sizeof(float)
 #define ENTRIES_PER_INDEX_BLOCK (512 / ENTRY_SIZE)
 #define SAMPLE_DATA_BLOCKS(LINES, WIDTH) ((LINES * WIDTH + 511) / 512)
 
 /*****************************************************
- * Block 0: Master index block.                      *
+ * Master index blocks:                              *
  *                                                   *
  * +----------+------------------------------+-...-+ *
  * | Count/32 | First key of ith index block |     | *
  * +----------+------------------------------+-...-+ *
  *                                                   *
- * Blocks 1 - INDEX_BLOCKS:  Index blocks            *
+ * Index blocks:                                     *
  *                                                   *
  * +--------+----------+----------+----------+       *
  * | KEY/32 | DATA/32  | BLOCK/32 | LINES/32 |       *
@@ -210,8 +219,8 @@ void log_initialize()
 
     memset(buffer, 0, sizeof(buffer));
 
-    for (i = 0 ; i < INDEX_BLOCKS + 1 ; i += 1) {
-        sdio_write_single_block(CONFIGURATION_BLOCKS + i, buffer);
+    for (i = 0 ; i < MASTER_INDEX_BLOCKS + INDEX_BLOCKS ; i += 1) {
+        sdio_write_single_block(FIRST_MASTER_INDEX_BLOCK + i, buffer);
         sleep_while(sdio_is_busy());
     }
 }
@@ -226,21 +235,21 @@ void log_record(uint32_t data, int rate, int count)
 
     /* We're not currently logging so start now. */
 
-    sdio_read_single_block(0 + CONFIGURATION_BLOCKS, buffer);
+    sdio_read_single_block(FIRST_MASTER_INDEX_BLOCK, buffer);
     sleep_while(sdio_is_busy());
 
     b = (uint32_t *)buffer;
     n = b[0];
 
-    index = n / ENTRIES_PER_INDEX_BLOCK + CONFIGURATION_BLOCKS + 1;
+    index = n / ENTRIES_PER_INDEX_BLOCK + FIRST_MASTER_INDEX_BLOCK + 1;
     offset = n % ENTRIES_PER_INDEX_BLOCK;
     context.width = fusion_samples_per_line(data) * SAMPLE_SIZE;
 
-    if (index == CONFIGURATION_BLOCKS + 1 && offset == 0) {
+    if (index == FIRST_MASTER_INDEX_BLOCK + 1 && offset == 0) {
         /* This is the first entry so we only need to skip the index
          * blocks. */
 
-        m = CONFIGURATION_BLOCKS + 1 + INDEX_BLOCKS;
+        m = FIRST_SAMPLE_DATA_BLOCK;
     } else if (offset == 0) {
         uint32_t *entry;
 
@@ -282,7 +291,7 @@ void log_record(uint32_t data, int rate, int count)
 
     /* Fetch the master index block. */
 
-    sdio_read_single_block(0 + CONFIGURATION_BLOCKS, buffer);
+    sdio_read_single_block(FIRST_MASTER_INDEX_BLOCK, buffer);
     sleep_while(sdio_is_busy());
 
     b = (uint32_t *)buffer;
@@ -299,7 +308,7 @@ void log_record(uint32_t data, int rate, int count)
 
     /* Write it back. */
 
-    sdio_write_single_block(0 + CONFIGURATION_BLOCKS, buffer);
+    sdio_write_single_block(FIRST_MASTER_INDEX_BLOCK, buffer);
     sleep_while(sdio_is_busy());
 
     /* Fetch the last index block, add the entry and write it back. */
@@ -325,18 +334,18 @@ void log_record(uint32_t data, int rate, int count)
 void log_list()
 {
     uint8_t buffer[512];
-    uint32_t *n_p, n;
+    uint32_t *b, n;
     int i;
 
     /* Fetch the master index block and read the number of logs. */
 
-    sdio_read_single_block(0 + CONFIGURATION_BLOCKS, buffer);
+    sdio_read_single_block(FIRST_MASTER_INDEX_BLOCK, buffer);
     sleep_while(sdio_is_busy());
 
     /* This is necessary so as not to break aliasing rules. */
 
-    n_p = (uint32_t *)(buffer + 0);
-    n = *n_p;
+    b = (uint32_t *)(buffer + 0);
+    n = b[0];
 
     if (n == 0) {
         usbserial_printf("No logs.\n");
@@ -345,8 +354,8 @@ void log_list()
             uint32_t *entry;
 
             if (i % ENTRIES_PER_INDEX_BLOCK == 0) {
-                sdio_read_single_block((i / ENTRIES_PER_INDEX_BLOCK +
-                                        CONFIGURATION_BLOCKS + 1),
+                sdio_read_single_block((FIRST_INDEX_BLOCK +
+                                        i / ENTRIES_PER_INDEX_BLOCK),
                                        buffer);
                 sleep_while(sdio_is_busy());
             }
@@ -368,7 +377,7 @@ void log_replay(uint32_t key, int lines)
 
     /* Fetch the master index block and read the number of logs. */
 
-    sdio_read_single_block(0 + CONFIGURATION_BLOCKS, buffer);
+    sdio_read_single_block(FIRST_MASTER_INDEX_BLOCK, buffer);
     sleep_while(sdio_is_busy());
 
     /* This is necessary so as not to break aliasing rules. */
@@ -376,11 +385,13 @@ void log_replay(uint32_t key, int lines)
     b = (uint32_t *)(buffer + 0);
     n = b[0];
 
-    for (i = 0 ; i <= (n - 1) / ENTRIES_PER_INDEX_BLOCK ; i += 1) {
-        if (key < ((uint32_t *)buffer)[i + 1]) {
-            break;
-        }
-    }
+    /* First the first index block with larger keys.  We need the
+     * previous one. */
+
+    for (i = 0;
+         i <= (n - 1) / ENTRIES_PER_INDEX_BLOCK &&
+             key >= b[i + 1];
+         i += 1);
 
     if (i == 0) {
         usbserial_printf("No such log.\n");
@@ -389,7 +400,7 @@ void log_replay(uint32_t key, int lines)
 
     /* Fetch the appropriate index block. */
 
-    sdio_read_single_block(CONFIGURATION_BLOCKS + i, buffer);
+    sdio_read_single_block(FIRST_INDEX_BLOCK + i - 1, buffer);
     sleep_while(sdio_is_busy());
 
     if (i - 1 == n / ENTRIES_PER_INDEX_BLOCK) {
