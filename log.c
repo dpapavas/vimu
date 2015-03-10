@@ -10,7 +10,7 @@
 #define INDEX_BLOCKS 16
 #define MASTER_INDEX_BLOCKS (((4 * INDEX_BLOCKS + 1) + 511) / 512)
 
-#if MASTER_INDEX_BLOCKS > 1
+#if MASTER_INDEX_BLOCKS != 1
 #error More than 127 index blocks not supported.
 #endif
 
@@ -241,7 +241,7 @@ void log_record(uint32_t data, int rate, int count)
     b = (uint32_t *)buffer;
     n = b[0];
 
-    index = n / ENTRIES_PER_INDEX_BLOCK + FIRST_MASTER_INDEX_BLOCK + 1;
+    index = FIRST_INDEX_BLOCK + n / ENTRIES_PER_INDEX_BLOCK;
     offset = n % ENTRIES_PER_INDEX_BLOCK;
     context.width = fusion_samples_per_line(data) * SAMPLE_SIZE;
 
@@ -302,8 +302,8 @@ void log_record(uint32_t data, int rate, int count)
 
     /* Update the master index, if we're starting a new block. */
 
-    if (offset == 0) {
-        b[index + 1] = context.key;
+    if (n % ENTRIES_PER_INDEX_BLOCK == 0) {
+        b[n / ENTRIES_PER_INDEX_BLOCK + 1] = context.key;
     }
 
     /* Write it back. */
@@ -382,7 +382,7 @@ void log_replay(uint32_t key, int lines)
 
     /* This is necessary so as not to break aliasing rules. */
 
-    b = (uint32_t *)(buffer + 0);
+    b = (uint32_t *)(buffer);
     n = b[0];
 
     /* First the first index block with larger keys.  We need the

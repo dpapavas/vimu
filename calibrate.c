@@ -1,8 +1,14 @@
+#include <string.h>
+#include <math.h>
+
 #include "mk20dx128.h"
 #include "util.h"
 #include "usbcommon.h"
+#include "sdio.h"
 #include "fusion.h"
 
+#define SAMPLING_RATE 1000
+#define CONFIGURATION_DATA_BLOCK 0
 #define GYROSCOPE_CALIBRATION_OFFSET 0
 
 typedef struct {
@@ -52,8 +58,42 @@ typedef struct {
 /*     return 1; */
 /* } */
 
-#define R 1000
-#define T 5000
+static void calculate_least_squares_fit(OffsetsContext *context,
+                                        float *lines[2],
+                                        float *correlations,
+                                        float *deviations)
+{
+    float ss_xx;
+    int i;
+
+    ss_xx = (context->sums[0] -
+             context->samples *
+             context->means[0] * context->means[0]);
+
+    for (i = 0 ; i < 3 ; i += 1) {
+        float ss_yy = (context->sums[1 + i] -
+                       context->samples *
+                       context->means[1 + i] * context->means[1 + i]);
+        float ss_xy = (context->sums[4 + i] -
+                       context->samples *
+                       context->means[0] * context->means[1 + i]);
+
+        if (lines) {
+            lines[i][1] = ss_xy / ss_xx;
+            lines[i][0] = (context->means[1 + i] -
+                           lines[i][1] * context->means[0]);
+        }
+
+        if (correlations) {
+            correlations[i] = (ss_xy * ss_xy) / (ss_xx * ss_yy);
+        }
+
+        if (deviations) {
+            deviations[i] = sqrtf((ss_yy - ss_xy * ss_xy / ss_xx) /
+                                  (context->samples - 2));
+        }
+    }
+}
 
 static int regression(float *samples, void *userdata)
 {
@@ -84,39 +124,34 @@ static int regression(float *samples, void *userdata)
     context->sums[7] += context->samples * samples[3];
 
     if (context->samples % 5000 == 0) {
-        float t, ss_tt, ss_xx, ss_xt, Tdot, rsquared[3];
-        int i;
+        float t, ss_tt, ss_xt, Tdot;
 
-        t = (float)context->samples / R;
+        t = (float)context->samples / SAMPLING_RATE;
 
         ss_tt = t * (context->samples * t - 1) / 12.0;
-        ss_xt = context->sums[7] / R - ((context->samples + 1) * t *
-                                        context->means[0] / 2);
-        ss_xx = (context->sums[0] -
-                 context->samples *
-                 context->means[0] * context->means[0]);
+        ss_xt = (context->sums[7] / SAMPLING_RATE -
+                 ((context->samples + 1) * t *
+                  context->means[0] / 2));
 
         Tdot = ss_xt / ss_tt;
 
-        for (i = 0 ; i < 3 ; i += 1) {
-            float a, b;
-            float ss_yy = (context->sums[1 + i] -
-                           context->samples *
-                           context->means[1 + i] * context->means[1 + i]);
-            float ss_xy = (context->sums[4 + i] -
-                           context->samples *
-                           context->means[0] * context->means[1 + i]);
+        if ((context->samples / 5000) % 2 == 0) {
+            float rsquared[3];
 
-            b = ss_xy / ss_xx;
-            a = context->means[1 + i] - b * context->means[0];
-            rsquared[i] = (ss_xy * ss_xy) / (ss_xx * ss_yy);
+            calculate_least_squares_fit (context, NULL, rsquared, NULL);
 
-            /* usbserial_trace("%d: %f, %f, %f\n", i + 1, a, b, rsquared); */
+            usbserial_printf("T = %.2f, Tdot = %.1f, r^2 = %.3f, %.3f, %.3f\n",
+                             samples[3], Tdot * 60,
+                             rsquared[0], rsquared[1], rsquared[2]);
+        } else {
+            float s[3];
+
+            calculate_least_squares_fit (context, NULL, NULL, s);
+
+            usbserial_printf("T = %.2f, Tdot = %.1f, s = %.3f, %.3f, %.3f\n",
+                             samples[3], Tdot * 60,
+                             s[0], s[1], s[2]);
         }
-
-        usbserial_printf("T = %.2f, Tdot = %.1f %.3f, %.3f, %.3f\n",
-                         samples[3], Tdot * 60,
-                         rsquared[0], rsquared[1], rsquared[2]);
     }
 
     return !context->finished;
@@ -153,7 +188,39 @@ void calibrate_gyroscope_offsets()
 
     fusion_start((1 << FUSION_RAW_ANGULAR_SPEED) |
                  (1 << FUSION_SENSOR_TEMPERATURE),
-                 1000, regression, &context);
+                 SAMPLING_RATE, regression, &context);
 
     usb_set_send_break_callback(NULL, NULL);
+
+    /* Fetch the master index block and read the number of logs. */
+
+    {
+        uint8_t buffer[512];
+        float l[3][2], s[3], rsquared[3];
+        int i;
+
+        sdio_read_single_block(CONFIGURATION_DATA_BLOCK, buffer);
+        sleep_while(sdio_is_busy());
+
+        memcpy(buffer + GYROSCOPE_CALIBRATION_OFFSET,
+               &context.samples,
+               sizeof(context.samples));
+
+        memcpy(buffer + GYROSCOPE_CALIBRATION_OFFSET + sizeof(context.samples),
+               &context.means,
+               sizeof(context.means));
+
+        memcpy(buffer + GYROSCOPE_CALIBRATION_OFFSET +
+               sizeof(context.samples) + sizeof(context.means),
+               &context.sums,
+               sizeof(context.sums));
+
+        for (i = 0 ; i < 3 ; i += 1) {
+            usbserial_printf("%d: a = %.3f, b = %.3f, r^2 = %.3f, s = %.3f\n",
+                             i + 1, l[i][0], l[i][1], rsquared[i], s[i]);
+        }
+
+        sdio_write_single_block(CONFIGURATION_DATA_BLOCK, buffer);
+        sleep_while(sdio_is_busy());
+    }
 }
