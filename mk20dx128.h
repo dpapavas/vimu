@@ -266,8 +266,9 @@
         NVIC_ICER(1) = ~(uint32_t)1;                            \
     }
 
-typedef void (*SoftwareIsrCallback)();
-void set_software_isr_callback(SoftwareIsrCallback new_callback);
+typedef void (*SoftwareIsrCallback)(void *userdata);
+void set_software_isr_callback(SoftwareIsrCallback new_callback,
+                               void *new_userdata);
 
 #define pend_software_interrupt(n) pend_interrupt(45)
 #define unpend_software_interrupt() unpend_interrupt(45)

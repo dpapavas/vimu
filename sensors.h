@@ -82,10 +82,11 @@
 
 #define SENSORS_SAMPLES_PER_LINE 10
 
-typedef void (*sensors_DataReadyCallback)(int16_t *line);
+typedef void (*sensors_DataReadyCallback)(int16_t *line, void *userdata);
 
 int sensors_are_online();
 void read_sensor_values(int16_t *line);
-void sensors_set_callback(sensors_DataReadyCallback new_callback);
+void sensors_set_callback(sensors_DataReadyCallback new_callback,
+                          void *new_userdata);
 
 #endif

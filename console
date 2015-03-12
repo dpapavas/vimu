@@ -1,6 +1,5 @@
 #!/bin/bash
 
-history -r .console_history
 quit=false
 
 # Suppress error messages to get rid of kill notifications.
@@ -43,10 +42,14 @@ while ! $quit; do
     disown $catpid
 
     (
+        history -r .console_history
+        
         while read -e line; do
             history -s "$line"
             echo "$line" > /dev/$device
         done
+        
+        history -w .console_history
     ) 0<&3 &
 
     readpid=$!
@@ -82,4 +85,3 @@ while ! $quit; do
     exec 0<&3 3<&-
 done
 
-history -w .console_history

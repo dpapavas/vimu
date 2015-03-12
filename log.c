@@ -7,20 +7,16 @@
 #include "util.h"
 
 #define RING_SIZE 16
-#define INDEX_BLOCKS 16
-#define MASTER_INDEX_BLOCKS (((4 * INDEX_BLOCKS + 1) + 511) / 512)
-
-#if MASTER_INDEX_BLOCKS != 1
-#error More than 127 index blocks not supported.
-#endif
+#define INDEX_BLOCKS 127
+#define MASTER_INDEX_BLOCKS 1
 
 #define FIRST_MASTER_INDEX_BLOCK 1
 #define FIRST_INDEX_BLOCK (FIRST_MASTER_INDEX_BLOCK + MASTER_INDEX_BLOCKS)
 #define FIRST_SAMPLE_DATA_BLOCK (FIRST_INDEX_BLOCK + INDEX_BLOCKS)
 
 #define ENTRY_SIZE (4 * sizeof(uint32_t))
-#define SAMPLE_SIZE sizeof(float)
 #define ENTRIES_PER_INDEX_BLOCK (512 / ENTRY_SIZE)
+#define SAMPLE_SIZE sizeof(float)
 #define SAMPLE_DATA_BLOCKS(LINES, WIDTH) ((LINES * WIDTH + 511) / 512)
 
 /*****************************************************
@@ -43,7 +39,7 @@
  *                                                   *
  ****************************************************/
 
-static struct {
+typedef struct {
     volatile uint32_t lines;    /* Total number of lines recorded. */
     volatile uint32_t filling;  /* Total block currently being filled. */
     volatile uint32_t writing;  /* Total block currently being written
@@ -55,19 +51,20 @@ static struct {
     uint8_t width;              /* The witdth, in bytes, of each
                                  * line. */
     uint8_t buffers[RING_SIZE][512];
-} context;
+} RecordingContext;
 
 static uint8_t *flush_filled_buffers(SDTransactionStatus status,
                                      uint8_t *buffer,
                                      void *userdata)
 {
+    RecordingContext *context = (RecordingContext *)userdata;
     uint8_t *b;
 
     assert(status != SDIO_FAILED);
 
-    if (context.writing == context.filling) {
-        if (fusion_in_progress()) {
-            sleep_while(context.writing == context.filling);
+    if (context->writing == context->filling) {
+        if (context->lines < context->target) {
+            sleep_while(context->writing == context->filling);
         } else {
             return NULL;
         }
@@ -75,41 +72,42 @@ static uint8_t *flush_filled_buffers(SDTransactionStatus status,
 
     /* usbserial_trace("< %f\n", (float)cycles() / cycles_in_ms(1)); */
 
-    b = context.buffers[context.writing % RING_SIZE];
-    context.writing += 1;
+    b = context->buffers[context->writing % RING_SIZE];
+    context->writing += 1;
 
     return b;
 }
 
 static int fusion_data_ready(float *samples, void *userdata)
 {
+    RecordingContext *context = (RecordingContext *)userdata;
     uint8_t *line = (uint8_t *)samples;
     int spillover;
 
-    /* This takes account of the fact that context.writing points to
+    /* This takes account of the fact that context->writing points to
      * the _next_ page to be written. */
 
-    assert (context.filling - context.writing < RING_SIZE - 1);
+    assert (context->filling - context->writing < RING_SIZE - 1);
 
-    spillover = context.width - (sizeof(context.buffers[0]) - context.fill);
-    assert(spillover < 0 || ((context.lines + 1) * context.width) % 512 == spillover);
+    spillover = context->width - (sizeof(context->buffers[0]) - context->fill);
+    assert(spillover < 0 || ((context->lines + 1) * context->width) % 512 == spillover);
 
     if (spillover < 0) {
         /* Write entire lines to the buffer if they fit. */
 
-        memcpy (context.buffers[context.filling % RING_SIZE] + context.fill,
-                line, context.width);
+        memcpy (context->buffers[context->filling % RING_SIZE] + context->fill,
+                line, context->width);
 
-        context.fill += context.width;
+        context->fill += context->width;
     } else {
         /* If the line doesn't fit entirely, write the beginning of
          * the next line. */
 
-        memcpy (context.buffers[context.filling % RING_SIZE] + context.fill,
-                line, context.width - spillover);
+        memcpy (context->buffers[context->filling % RING_SIZE] + context->fill,
+                line, context->width - spillover);
 
-        /* memset(context.buffers[(context.filling + 1) % RING_SIZE], */
-        /*        0xFA, sizeof(context.buffers[0])); */
+        /* memset(context->buffers[(context->filling + 1) % RING_SIZE], */
+        /*        0xFA, sizeof(context->buffers[0])); */
 
         /* If there's left-over data from the last line copy it to the
          * start of the new buffer. */
@@ -118,43 +116,41 @@ static int fusion_data_ready(float *samples, void *userdata)
             /* Make sure we're not spilling into the page currently
              * being written out. */
 
-            assert (context.filling - context.writing < RING_SIZE - 2);
+            assert (context->filling - context->writing < RING_SIZE - 2);
 
-            memcpy(context.buffers[(context.filling + 1) % RING_SIZE],
-                   line + context.width - spillover, spillover);
+            memcpy(context->buffers[(context->filling + 1) % RING_SIZE],
+                   line + context->width - spillover, spillover);
         }
 
-        context.filling += 1;
-        context.fill = spillover;
+        context->filling += 1;
+        context->fill = spillover;
 
         /* If this is the first completed block, start writing to the
          * card. */
 
-        if (context.filling == 1) {
+        if (context->filling == 1) {
             assert(!sdio_is_busy());
-            sdio_write_multiple_blocks(context.block, NULL,
-                                       flush_filled_buffers, NULL);
+            sdio_write_multiple_blocks(context->block, NULL,
+                                       flush_filled_buffers, context);
         }
 
         /* usbserial_trace("%d\n", */
-        /*                 context.block + context.filling); */
+        /*                 context->block + context->filling); */
     }
 
     /* Increment the number of entries written. */
 
-    context.lines += 1;
-
-    if (context.lines == context.target) {
+    if ((context->lines += 1) == context->target) {
         /* Force the last, half-finished page to be flushed, if
          * needed. */
 
-        if(context.fill > 0) {
-            context.filling += 1;
+        if(context->fill > 0) {
+            context->filling += 1;
 
-            if (context.filling == 1) {
+            if (context->filling == 1) {
                 assert(!sdio_is_busy());
-                sdio_write_multiple_blocks(context.block, NULL,
-                                           flush_filled_buffers, NULL);
+                sdio_write_multiple_blocks(context->block, NULL,
+                                           flush_filled_buffers, context);
             }
         }
 
@@ -163,7 +159,7 @@ static int fusion_data_ready(float *samples, void *userdata)
         return 1;
     }
 
-    assert((context.lines * context.width) % 512 == context.fill);
+    assert((context->lines * context->width) % 512 == context->fill);
 }
 
 static void dump_data_line(uint32_t data, float *line)
@@ -172,7 +168,7 @@ static void dump_data_line(uint32_t data, float *line)
 
     j = 0;
 
-    /* Acceleration. */
+    /* Raw acceleration. */
 
     if (data & (1 << FUSION_RAW_ACCELERATION)) {
         usbserial_printf("%+1.2f %+1.2f %+1.2f ",
@@ -181,7 +177,7 @@ static void dump_data_line(uint32_t data, float *line)
         j += 3;
     }
 
-    /* Angular rate. */
+    /* Raw angular rate. */
 
     if (data & (1 << FUSION_RAW_ANGULAR_SPEED)) {
         usbserial_printf("%+1.2f %+1.2f %+1.2f ",
@@ -190,9 +186,18 @@ static void dump_data_line(uint32_t data, float *line)
         j += 3;
     }
 
-    /* Magnetic field. */
+    /* Raw magnetic field. */
 
     if (data & (1 << FUSION_RAW_MAGNETIC_FIELD)) {
+        usbserial_printf("%+1.2f %+1.2f %+1.2f ",
+                         line[j + 0], line[j + 1], line[j + 2]);
+
+        j += 3;
+    }
+
+    /* Calibrated angular rate. */
+
+    if (data & (1 << FUSION_ANGULAR_SPEED)) {
         usbserial_printf("%+1.2f %+1.2f %+1.2f ",
                          line[j + 0], line[j + 1], line[j + 2]);
 
@@ -202,7 +207,7 @@ static void dump_data_line(uint32_t data, float *line)
     /* Sensor temperature. */
 
     if (data & (1 << FUSION_SENSOR_TEMPERATURE)) {
-        usbserial_printf("%+1.2f", line[j + 0]);
+        usbserial_printf("%+1.2f ", line[j + 0]);
 
         j += 1;
     }
@@ -227,11 +232,10 @@ void log_initialize()
 
 void log_record(uint32_t data, int rate, int count)
 {
+    RecordingContext context;
     uint8_t buffer[512];
-    uint16_t index;
-    uint8_t offset;
     uint32_t *b;
-    int m, n;
+    int m, n, k, l;
 
     /* We're not currently logging so start now. */
 
@@ -241,22 +245,26 @@ void log_record(uint32_t data, int rate, int count)
     b = (uint32_t *)buffer;
     n = b[0];
 
-    index = FIRST_INDEX_BLOCK + n / ENTRIES_PER_INDEX_BLOCK;
-    offset = n % ENTRIES_PER_INDEX_BLOCK;
+    k = n / ENTRIES_PER_INDEX_BLOCK;
+    l = n % ENTRIES_PER_INDEX_BLOCK;
     context.width = fusion_samples_per_line(data) * SAMPLE_SIZE;
 
-    if (index == FIRST_MASTER_INDEX_BLOCK + 1 && offset == 0) {
+    if (k >= INDEX_BLOCKS) {
+        usbserial_printf("Cannot record any more logs.\n");
+    }
+
+    if (k == 0 && l == 0) {
         /* This is the first entry so we only need to skip the index
          * blocks. */
 
         m = FIRST_SAMPLE_DATA_BLOCK;
-    } else if (offset == 0) {
+    } else if (l == 0) {
         uint32_t *entry;
 
         /* The last entry is stored in the previous block so we need
          * to fetch it. */
 
-        sdio_read_single_block(index - 1, buffer);
+        sdio_read_single_block(FIRST_INDEX_BLOCK + k - 1, buffer);
         sleep_while(sdio_is_busy());
 
         entry = (uint32_t *)(buffer + (ENTRIES_PER_INDEX_BLOCK - 1) *
@@ -265,10 +273,10 @@ void log_record(uint32_t data, int rate, int count)
     } else {
         uint32_t *entry;
 
-        sdio_read_single_block(index, buffer);
+        sdio_read_single_block(FIRST_INDEX_BLOCK + k, buffer);
         sleep_while(sdio_is_busy());
 
-        entry = (uint32_t *)(buffer + (offset - 1) *
+        entry = (uint32_t *)(buffer + (l - 1) *
                              ENTRY_SIZE);
         m = entry[2] + SAMPLE_DATA_BLOCKS(entry[3], context.width);
     }
@@ -280,13 +288,12 @@ void log_record(uint32_t data, int rate, int count)
     context.lines = context.fill = context.filling = context.writing = 0;
 
     turn_on_led();
-    fusion_start(data, rate, fusion_data_ready, NULL);
+    fusion_start(data, rate, fusion_data_ready, &context);
     sleep_while(sdio_is_busy());
     turn_off_led();
 
     /* Stop logging. */
 
-    assert(!(fusion_in_progress()));
     assert(context.writing == context.filling);
 
     /* Fetch the master index block. */
@@ -313,11 +320,11 @@ void log_record(uint32_t data, int rate, int count)
 
     /* Fetch the last index block, add the entry and write it back. */
 
-    sdio_read_single_block(index, buffer);
+    sdio_read_single_block(FIRST_INDEX_BLOCK + k, buffer);
     sleep_while(sdio_is_busy());
 
     {
-        uint32_t *entry = (uint32_t *)(buffer + offset * ENTRY_SIZE);
+        uint32_t *entry = (uint32_t *)(buffer + l * ENTRY_SIZE);
 
         entry[0] = context.key;
         entry[1] = context.data;
@@ -325,7 +332,7 @@ void log_record(uint32_t data, int rate, int count)
         entry[3] = context.lines;
     }
 
-    sdio_write_single_block(index, buffer);
+    sdio_write_single_block(FIRST_INDEX_BLOCK + k, buffer);
     sleep_while(sdio_is_busy());
 
     usbserial_printf("Recorded log %d.\n", context.key);

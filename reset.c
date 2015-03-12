@@ -12,6 +12,7 @@ extern void __startup(void);
 extern int main (void);
 
 SoftwareIsrCallback callback;
+void *userdata;
 
 static __attribute__((naked, used)) void diagnose_fault (unsigned long *sp)
 {
@@ -81,14 +82,16 @@ static __attribute__((noreturn, interrupt ("IRQ"))) void unused_isr(void)
 __attribute__((interrupt ("IRQ"))) void software_isr(void)
 {
     assert(callback);
-    callback();
+    callback(userdata);
 }
 
-void set_software_isr_callback(SoftwareIsrCallback new_callback)
+void set_software_isr_callback(SoftwareIsrCallback new_callback,
+                               void *new_userdata)
 {
     assert(!callback || !new_callback);
 
     callback = new_callback;
+    userdata = new_userdata;
 
     if (new_callback) {
         enable_interrupt(45);

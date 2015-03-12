@@ -8,9 +8,9 @@ typedef enum {
 
     FUSION_SENSOR_TEMPERATURE,
 
-    FUSION_CALIBRATED_ACCELERATION,
-    FUSION_CALIBRATED_ANGULAR_VELOCITY,
-    FUSION_CALIBRATED_MAGNETIC_FIELD,
+    FUSION_ACCELERATION,
+    FUSION_ANGULAR_SPEED,
+    FUSION_MAGNETIC_FIELD,
 
     FUSION_COURSE_OVER_GROUND,
     FUSION_SPEED_OVER_GROUND,
@@ -27,6 +27,6 @@ typedef int (*fusion_DataReadyCallback)(float *samples, void *userdata);
 void fusion_start(uint32_t data, int rate,
                   fusion_DataReadyCallback callback, void *userdata);
 int fusion_samples_per_line(uint32_t data);
-int fusion_in_progress();
+void fusion_set_gyroscope_offsets(float (*lines)[2]);
 
 #endif

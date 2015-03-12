@@ -12,7 +12,7 @@
 #include "sdio.h"
 #include "fusion.h"
 #include "log.h"
-#include "calibrate.h"
+#include "calibration.h"
 
 typedef enum {
     NONE = 0,
@@ -39,17 +39,23 @@ typedef enum {
     REPLAY,
     TEST,
     SET,
+    CALIBRATE,
+    CONTINUE,
+    REPORT,
 
     /* Registers. */
 
     RATE,
 
-    /* Fusion data.  Order must match FusionDatum! */
+    /* Fusion data.  Order must match fusion_Datum! */
 
     RAWACCELERATION,
     RAWANGULARSPEED,
     RAWMAGNETICFIELD,
     TEMPERATURE,
+    ACCELERATION,
+    ANGULARSPEED,
+    MAGNETICFIELD,
 
     IDENTIFIERS_N,
 } Identifier;
@@ -64,14 +70,21 @@ static char *identifiers[IDENTIFIERS_N] = {
     [LIST] = "list",
     [REPLAY] = "replay",
     [SET] = "set",
+    [CALIBRATE] = "calibrate",
     [TEST] = "test",
 
     [RATE] = "rate",
+
+    [CONTINUE] = "continue",
+    [REPORT] = "report",
 
     [RAWACCELERATION] = "rawacceleration",
     [RAWANGULARSPEED] = "rawangularspeed",
     [RAWMAGNETICFIELD] = "rawmagneticfield",
     [TEMPERATURE] = "temperature",
+    [ACCELERATION] = "acceleration",
+    [ANGULARSPEED] = "angularspeed",
+    [MAGNETICFIELD] = "magneticfield",
 };
 
 static volatile uint32_t tokens[4];
@@ -278,14 +291,31 @@ void console_enter()
             log_replay(tokens[1], tokens[2]);
             break;
 
-        case TEST: calibrate_gyroscope_offsets();  break;
+        case TEST: calibration_foo(); break;
 
+        case CALIBRATE: {
+            int mode;
+
+            switch (tokens[2]) {
+            case RESET: mode = CALIBRATION_RESET; break;
+            case REPORT: mode = CALIBRATION_REPORT; break;
+            default: mode = CALIBRATION_CONTINUE; break;
+            }
+
+            switch(tokens[1]) {
+            case ANGULARSPEED: calibration_fit_gyroscope_offsets(mode); break;
+            default: usbserial_printf("Can't calibrate that.\n");
+            }
+        }
+
+            break;
         case SET:
             switch (tokens[1]) {
             case RAWACCELERATION:
             case RAWANGULARSPEED:
             case RAWMAGNETICFIELD:
-            case TEMPERATURE: {
+            case TEMPERATURE:
+            case ANGULARSPEED: {
                 int i = tokens[1] - RAWACCELERATION + FUSION_RAW_ACCELERATION;
 
                 if (tokens[2]) {

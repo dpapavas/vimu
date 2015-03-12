@@ -14,6 +14,7 @@ static volatile uint8_t fetched, available;
 
 static void fetch_more_data();
 static sensors_DataReadyCallback callback;
+static void *userdata;
 
 static void data_ready(int status, int count)
 {
@@ -28,7 +29,7 @@ static void data_ready(int status, int count)
             fetch_more_data();
         }
 
-        callback(buffers[r]);
+        callback(buffers[r], userdata);
     }
 
     fetched -= 1;
@@ -230,9 +231,11 @@ int sensors_are_online()
     return online;
 }
 
-void sensors_set_callback(sensors_DataReadyCallback new_callback)
+void sensors_set_callback(sensors_DataReadyCallback new_callback,
+                          void *new_userdata)
 {
     callback = new_callback;
+    userdata = new_userdata;
 
     if (new_callback) {
         power_up();

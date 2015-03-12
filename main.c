@@ -9,6 +9,7 @@
 #include "fusion.h"
 #include "console.h"
 #include "button.h"
+#include "calibration.h"
 #include "sdio.h"
 #include "log.h"
 #include "util.h"
@@ -22,6 +23,7 @@ int main()
     sdio_initialize();
     i2c_initialize();
     button_initialize();
+    calibration_initialize();
     console_initialize();
     console_enter();
 
