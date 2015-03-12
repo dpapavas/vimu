@@ -59,6 +59,9 @@ typedef struct {
 /*     return 1; */
 /* } */
 
+    static float K_x, K_y[3];
+    static int foo;
+
 static void calculate_least_squares_fit(OffsetsContext *context,
                                         float (*lines)[2],
                                         float *correlations,
@@ -67,26 +70,21 @@ static void calculate_least_squares_fit(OffsetsContext *context,
     float ss_xx;
     int i;
 
-    ss_xx = (context->sums[0] -
-             context->samples *
-             context->means[0] * context->means[0]);
+    ss_xx = context->sums[3];
 
-    usbserial_trace("sum_xx = %f, ss_xx = %f\n", context->sums[0], ss_xx);
+    /* usbserial_trace("sum_xx = %f, ss_xx = %f\n", context->sums[3], ss_xx); */
 
     for (i = 0 ; i < 3 ; i += 1) {
-        float ss_yy = (context->sums[1 + i] -
-                       context->samples *
-                       context->means[1 + i] * context->means[1 + i]);
+        float ss_yy = context->sums[i];
         float ss_xy = (context->sums[4 + i] -
-                       context->samples *
-                       context->means[0] * context->means[1 + i]);
+                       (context->means[3] - K_x) * (context->means[i] - K_y[i]) * context->samples);
 
-        usbserial_trace("%d: n = %d\nsum_yy = %f, sum_xy = %f\nss_yy = %f, ss_xy = %f\nm_x = %f, m_y = %f\n", i, context->samples, context->sums[1 + i], context->sums[4 + i], ss_yy, ss_xy, context->means[0], context->means[1 + i]);
+        /* usbserial_trace("%d: n = %d\nsum_yy = %f, sum_xy = %f\nss_yy = %f, ss_xy = %f\nm_x = %f, m_y = %f\n", i, context->samples, context->sums[i], context->sums[4 + i], ss_yy, ss_xy, context->means[3], context->means[i]); */
 
         if (lines) {
             lines[i][1] = ss_xy / ss_xx;
-            lines[i][0] = (context->means[1 + i] -
-                           lines[i][1] * context->means[0]);
+            lines[i][0] = (context->means[i] -
+                           lines[i][1] * context->means[3]);
         }
 
         if (correlations) {
@@ -103,28 +101,35 @@ static void calculate_least_squares_fit(OffsetsContext *context,
 static int accumulate_samples_for_least_squares(float *samples, void *userdata)
 {
     OffsetsContext *context = (OffsetsContext *)userdata;
+    int i;
+
+    if (!foo) {
+        K_x = samples[3];
+        for (i = 0 ; i < 3 ; i += 1) {
+            K_y[i] = samples[i];
+        }
+
+        foo = 1;
+    }
 
     context->samples += 1;
 
     /* Means. */
 
-    context->means[0] += (samples[3] - context->means[0]) / context->samples;
-    context->means[1] += (samples[0] - context->means[1]) / context->samples;
-    context->means[2] += (samples[1] - context->means[2]) / context->samples;
-    context->means[3] += (samples[2] - context->means[3]) / context->samples;
+    for (i = 0 ; i < 4 ; i += 1) {
+        float delta;
 
-    /* Squared sums for variances. */
+        delta = samples[i] - context->means[i];
+        context->means[i] += delta / context->samples;
 
-    context->sums[0] += samples[3] * samples[3];
-    context->sums[1] += samples[0] * samples[0];
-    context->sums[2] += samples[1] * samples[1];
-    context->sums[3] += samples[2] * samples[2];
+        /* Squared sums for variances. */
 
-    /* Squared sums for cross-covariances. */
+        context->sums[i] += delta * (samples[i] - context->means[i]);
 
-    context->sums[4] += samples[3] * samples[0];
-    context->sums[5] += samples[3] * samples[1];
-    context->sums[6] += samples[3] * samples[2];
+        /* Squared sums for cross-covariances. */
+
+        context->sums[4 + i] += (samples[3] - K_x) * (samples[i] - K_y[i]);
+    }
 
     context->sums[7] += context->samples * samples[3];
 
@@ -136,7 +141,7 @@ static int accumulate_samples_for_least_squares(float *samples, void *userdata)
         ss_tt = t * (context->samples * t - 1) / 12.0;
         ss_xt = (context->sums[7] / SAMPLING_RATE -
                  ((context->samples + 1) * t *
-                  context->means[0] / 2));
+                  context->means[3] / 2));
 
         Tdot = ss_xt / ss_tt;
 
@@ -304,11 +309,11 @@ void calibration_foo()
     float l[3][2], s[3], rsquared[3];
     int i;
 
-    for (i = 0 ; i < 50000 ; i += 1) {
+    for (i = 0 ; i < 500000 ; i += 1) {
         float t = i / 1000.0 / 60.0;
-        float samples[4] = {1 + (2 * t) + noise(0, 5.2),
-                            3 + (4 * t) + noise(0, 5.4),
-                            5 + (6 * t) + noise(0, 5.6),
+        float samples[4] = {1 + (2 * t) + noise(0, .02),
+                            3 + (4 * t) + noise(0, .04),
+                            5 + (6 * t) + noise(0, .06),
                             t};
 
         accumulate_samples_for_least_squares(samples, &context);
